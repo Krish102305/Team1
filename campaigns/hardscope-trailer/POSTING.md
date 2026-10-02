@@ -23,8 +23,8 @@ platforms, then submit each post link in the campaign with **Submit clip**.
 ## Post log
 | Clip | Platform | Link | Submitted on Whop |
 |------|----------|------|-------------------|
-| 1 reveal | TikTok | https://www.tiktok.com/@creator.chaos1/video/7692130197415480606 | ☐ |
-| 1 reveal | YouTube | | ☐ |
+| 1 reveal | TikTok | https://www.tiktok.com/@creator.chaos1/video/7692130197415480606 | ✅ |
+| 1 reveal | YouTube | (link pending) | ✅ |
 | 1 reveal | Instagram | | ☐ |
 | 2 roll call | TikTok | | ☐ |
 | 2 roll call | YouTube | | ☐ |
