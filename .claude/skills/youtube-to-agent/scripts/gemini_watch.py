@@ -23,7 +23,7 @@ def main() -> int:
     if not key:
         print("GEMINI_API_KEY is not set", file=sys.stderr)
         return 1
-    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-pro")
+    model = os.environ.get("GEMINI_MODEL", "gemini-3.1-pro-preview")
 
     prompt = (
         "Watch this video and extract it using exactly the format below. "
