@@ -55,7 +55,15 @@ word timestamps in `transcript.json` to set start/end precisely. Fields:
 `start`, `end` (seconds), `title` (short, for the file name), `caption`
 (post text: hook line + 3–5 relevant hashtags + any campaign-required tag),
 `layout` (`blur` for gameplay/wide shots where the whole frame matters,
-`crop` for a face-cam/IRL shot), and `crop_x` (0–1, where the subject is) for `crop`.
+`crop` for a face-cam/IRL shot or footage that is already 9:16), and `crop_x`
+(0–1, where the subject is) for `crop`. Optional, when the brief asks for them:
+`hook` (big text pinned at the top, e.g. "wait, what is this??"), `labels`
+(timed on-screen name tags, source-video seconds), and `subtitles` (hand-written
+captions that replace the automatic ones when the transcript mishears a line;
+always check the transcript against the audio before trusting it).
+Only put a name label on a segment the footage itself identifies (a title
+card, the speaker saying their name, or the brief); never guess who someone is
+from their face.
 If unsure about framing, extract a frame
 (`ffmpeg -ss <t> -i <video> -frames:v 1 frame.jpg`) and look at it.
 

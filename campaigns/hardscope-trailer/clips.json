@@ -1,0 +1,92 @@
+[
+ {
+  "start": 43.5,
+  "end": 64.5,
+  "title": "A reveal - what is hardscope",
+  "layout": "crop",
+  "crop_x": 0.5,
+  "hook": "wait... what is HardScope??",
+  "subtitles": [
+   {
+    "start": 52.5,
+    "end": 54.0,
+    "text": "this is R3BORN"
+   },
+   {
+    "start": 54.8,
+    "end": 56.1,
+    "text": "welcome to love & justice"
+   },
+   {
+    "start": 56.2,
+    "end": 58.0,
+    "text": "welcome to unpacked"
+   },
+   {
+    "start": 61.0,
+    "end": 64.5,
+    "text": "all new content series"
+   }
+  ],
+  "caption": "Wait, what is HardScope?? \ud83d\udc40 @hardscope #hardscope #r3born #loveandjustice #unpacked"
+ },
+ {
+  "start": 50.9,
+  "end": 58.4,
+  "title": "B roll call - all these creators",
+  "layout": "crop",
+  "crop_x": 0.5,
+  "hook": "a new channel with ALL these creators??",
+  "labels": [
+   {
+    "start": 52.4,
+    "end": 54.7,
+    "text": "NEON"
+   },
+   {
+    "start": 54.7,
+    "end": 56.15,
+    "text": "ZACH JUSTICE"
+   },
+   {
+    "start": 56.15,
+    "end": 58.4,
+    "text": "MATCRACKZ"
+   }
+  ],
+  "subtitles": [
+   {
+    "start": 52.5,
+    "end": 54.0,
+    "text": "this is R3BORN"
+   },
+   {
+    "start": 54.8,
+    "end": 56.1,
+    "text": "welcome to love & justice"
+   },
+   {
+    "start": 56.2,
+    "end": 58.4,
+    "text": "welcome to unpacked"
+   }
+  ],
+  "caption": "A new channel with all of these creators is crazy \ud83e\udd2f @hardscope #hardscope #r3born #loveandjustice #unpacked"
+ },
+ {
+  "start": 43.5,
+  "end": 54.75,
+  "title": "C tease - neon has a new show",
+  "layout": "crop",
+  "crop_x": 0.5,
+  "hook": "Neon has a new show??",
+  "subtitles": [
+   {
+    "start": 52.5,
+    "end": 54.75,
+    "text": "this is R3BORN"
+   }
+  ],
+  "caption": "Neon has a new show?? \ud83d\ude33 @hardscope #hardscope #r3born #neon"
+ }
+]
