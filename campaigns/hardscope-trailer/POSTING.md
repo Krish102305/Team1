@@ -19,3 +19,16 @@ Pay: $1 / 1K views on YouTube Shorts, TikTok, Instagram Reels. Budget: YouTube $
 
 On YouTube Shorts swap `@hardscope` for `@HardScopeTV`. Post each clip on all three
 platforms, then submit each post link in the campaign with **Submit clip**.
+
+## Post log
+| Clip | Platform | Link | Submitted on Whop |
+|------|----------|------|-------------------|
+| 1 reveal | TikTok | https://www.tiktok.com/@creator.chaos1/video/7692130197415480606 | ☐ |
+| 1 reveal | YouTube | | ☐ |
+| 1 reveal | Instagram | | ☐ |
+| 2 roll call | TikTok | | ☐ |
+| 2 roll call | YouTube | | ☐ |
+| 2 roll call | Instagram | | ☐ |
+| 3 Neon tease | TikTok | | ☐ |
+| 3 Neon tease | YouTube | | ☐ |
+| 3 Neon tease | Instagram | | ☐ |
