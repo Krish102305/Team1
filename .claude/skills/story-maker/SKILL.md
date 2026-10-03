@@ -20,14 +20,18 @@ Each story, 45–60 s narrated (≈140–170 words). What makes them work:
   No setup, no "So this happened…".
 - **Specific, concrete details** (ninth floor, four knocks, a 1994 lottery ticket) — vague = boring.
 - **Escalate every 2–3 sentences**: each beat raises the stakes or adds a new question.
-- **End on a twist or open loop** (a question the viewer needs answered) — drives comments
-  and "part 2" requests. Best genres: eerie/mystery, inheritance/secret, revenge, workplace twist.
+- **Always finish the story**: resolve the mystery with a twist in the last 2–4 sentences
+  (no cliffhangers, no "part 2"). Best genres: eerie-then-wholesome, inheritance/secret,
+  revenge, workplace twist.
 - Short spoken sentences; write numbers/times the way they're said ("3 A.M.", "twenty-five").
 - Voices (Kokoro): `am_michael` (default, male), `af_heart` (female). `speed` ~1.05–1.1.
 
 Save as JSON (see `scripts/make_story.py` docstring): `slug`, `hook` (≤8 words,
 shown 3 s at the top), `script`, `title` (YouTube, ends `#shorts`), `caption`
-(TikTok/IG, 2–4 hashtags).
+(TikTok/IG, 2–4 hashtags), and **`scenes`**: 6–8 image prompts that show what the
+narration is describing, each with `n` = how many sentences it covers (the `n`s
+must add up to the sentence count). Prompts describe a concrete visual (objects,
+place, lighting); no real people's names, no text in the image.
 
 ## 2. Render
 
@@ -35,7 +39,8 @@ shown 3 s at the top), `script`, `title` (YouTube, ends `#shorts`), `caption`
 python3 .claude/skills/story-maker/scripts/make_story.py story.json clips-work/stories
 ```
 Needs `pip install piper-tts faster-whisper`; the voice model downloads on first
-run (~120 MB, git-ignored). Background: a random clip from
+run (~120 MB, git-ignored). With `scenes`, each scene gets a free AI image (pollinations.ai) with a slow
+zoom, cut exactly on sentence breaks. Without `scenes`: a random clip from
 `.claude/skills/story-maker/backgrounds/*.mp4` if present — **only footage the
 user owns or has a licence for** (own gameplay recordings, royalty-free stock).
 Otherwise a generated gradient is used.
