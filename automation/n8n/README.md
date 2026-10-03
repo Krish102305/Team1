@@ -18,7 +18,7 @@
 ## Not automated (and why)
 - **TikTok** – TikTok's posting API keeps posts private until TikTok audits your app. Use TikTok Studio's scheduler.
 - **Instagram** – possible later via the Instagram Graph API; needs a Creator account linked to a Facebook Page and a public video URL.
-- **Whop submission** – no public API we know of; the email gives you the link to paste.
+- **Whop submission** – tested 2026-10-03 with a user OAuth app (`oauth:token_exchange` + `bounty:*` scopes). Login works, but `GET /bounty_submissions` returns 0 items despite real Content Rewards submissions, and `GET /bounties` rejects user tokens ("Apps may not make requests for users"). Content Rewards campaigns are not exposed through the bounties API, so auto-submit is not possible; the email gives you the link to paste.
 - **YouTube "paid promotion" box** – not settable through the API; tick it in YouTube Studio.
 
 ## Accounts to connect in n8n (Credentials → Add)
