@@ -1,0 +1,25 @@
+# creator.chaos – n8n auto-poster
+
+## What exists in n8n already
+- Data table **`creator_chaos_post_queue`** (id `9QnDewplY6xoxrtX`, personal project).
+  Columns: `campaign, clip_name, platform, drive_file_id, title, description,
+  publish_at, status, post_url, error`. One row = one post. `status` is
+  `queued` → `posted` (or `failed`, with the reason in `error`).
+
+## Workflow (validated, not yet created – needs your approval)
+**creator.chaos – Auto-post YouTube Shorts**, every 30 min:
+1. Read rows where `status = queued` and `platform = youtube`, oldest `publish_at` first.
+2. Keep only rows whose `publish_at` has passed; take **one** per run (keeps posts spaced).
+3. Download the clip from Google Drive (`drive_file_id`).
+4. Upload to YouTube as a **public** Short (Entertainment, not made for kids).
+5. Save `https://youtube.com/shorts/<id>` to the row and email you the link to submit on Whop.
+6. If the upload fails, mark the row `failed` with the error instead of retrying forever.
+
+## Not automated (and why)
+- **TikTok** – TikTok's posting API keeps posts private until TikTok audits your app. Use TikTok Studio's scheduler.
+- **Instagram** – possible later via the Instagram Graph API; needs a Creator account linked to a Facebook Page and a public video URL.
+- **Whop submission** – no public API we know of; the email gives you the link to paste.
+- **YouTube "paid promotion" box** – not settable through the API; tick it in YouTube Studio.
+
+## Accounts to connect in n8n (Credentials → Add)
+- YouTube OAuth2, Google Drive OAuth2, Gmail OAuth2 – sign in with the Google account that owns the **creator.chaos** channel.
