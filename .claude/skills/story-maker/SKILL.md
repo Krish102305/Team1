@@ -15,10 +15,15 @@ neighbour drama, petty revenge, "I found out…"). Never copy or lightly reword
 real Reddit posts or other creators' stories: that is reused content, gets
 flagged, and can be someone else's copyright. No real, identifiable people.
 
-Each story, 30–60 s narrated (≈90–160 words):
-- **First sentence is the hook** (the conflict, immediately). No "So this happened…".
-- One clear escalation and a **payoff/twist in the last 2 sentences**.
-- Plain spoken English, short sentences (the voice reads it literally; spell out numbers if odd).
+Each story, 45–60 s narrated (≈140–170 words). What makes them work:
+- **Line 1 = the hook, with something wrong in it** ("Every night at 3 A.M., someone knocks…").
+  No setup, no "So this happened…".
+- **Specific, concrete details** (ninth floor, four knocks, a 1994 lottery ticket) — vague = boring.
+- **Escalate every 2–3 sentences**: each beat raises the stakes or adds a new question.
+- **End on a twist or open loop** (a question the viewer needs answered) — drives comments
+  and "part 2" requests. Best genres: eerie/mystery, inheritance/secret, revenge, workplace twist.
+- Short spoken sentences; write numbers/times the way they're said ("3 A.M.", "twenty-five").
+- Voices (Kokoro): `am_michael` (default, male), `af_heart` (female). `speed` ~1.05–1.1.
 
 Save as JSON (see `scripts/make_story.py` docstring): `slug`, `hook` (≤8 words,
 shown 3 s at the top), `script`, `title` (YouTube, ends `#shorts`), `caption`

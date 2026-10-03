@@ -4,7 +4,8 @@
 Usage: make_story.py <story.json> <out-dir>
 
 story.json: {"slug": "roommate-food", "hook": "MY ROOMMATE STOLE MY FOOD FOR 3 WEEKS",
-             "script": "full narration text...", "title": "...", "caption": "..."}
+             "script": "full narration text...", "title": "...", "caption": "...",
+             "voice": "am_michael", "speed": 1.1}   (voice/speed optional; Kokoro voice ids)
 Background: a random clip from .claude/skills/story-maker/backgrounds/*.mp4 if any
 (footage you own or have a licence for), otherwise a generated animated gradient.
 Writes <out-dir>/<slug>.mp4 and <out-dir>/<slug>.post.json.
@@ -18,8 +19,9 @@ from pathlib import Path
 from faster_whisper import WhisperModel
 
 SKILL = Path(__file__).resolve().parent.parent
-VOICE = SKILL / "voices" / "en_US-ryan-high.onnx"
-VOICE_URL = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high/"
+VOICES = SKILL / "voices"
+KOKORO_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
+DEFAULT_VOICE = "am_michael"
 W, H = 1080, 1920
 WORDS_PER_CAPTION = 2
 
@@ -43,21 +45,27 @@ def ts(t: float) -> str:
     return f"{int(t // 3600)}:{int(t % 3600 // 60):02d}:{t % 60:05.2f}"
 
 
-def ensure_voice() -> None:
-    VOICE.parent.mkdir(parents=True, exist_ok=True)
-    for name in (VOICE.name, VOICE.name + ".json"):
-        if not (VOICE.parent / name).exists():
-            subprocess.run(["curl", "-sSL", "-o", str(VOICE.parent / name), VOICE_URL + name], check=True)
+def narrate(text: str, wav: Path, voice: str, speed: float) -> float:
+    """Kokoro TTS, sentence by sentence with short natural pauses."""
+    import re
 
+    import numpy as np
+    import soundfile as sf
+    from kokoro_onnx import Kokoro
 
-def narrate(text: str, wav: Path) -> float:
-    ensure_voice()
-    subprocess.run([sys.executable, "-m", "piper", "-m", str(VOICE), "-f", str(wav),
-                    "--length-scale", "0.88", "--sentence-silence", "0.15"],
-                   input=text.encode(), check=True, capture_output=True)
-    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                          "-of", "csv=p=0", str(wav)], capture_output=True, text=True, check=True)
-    return float(out.stdout.strip())
+    VOICES.mkdir(parents=True, exist_ok=True)
+    for name in ("kokoro-v1.0.onnx", "voices-v1.0.bin"):
+        if not (VOICES / name).exists():
+            subprocess.run(["curl", "-sSL", "-o", str(VOICES / name), KOKORO_URL + name], check=True)
+    k = Kokoro(str(VOICES / "kokoro-v1.0.onnx"), str(VOICES / "voices-v1.0.bin"))
+    parts, sr = [], 24000
+    for sent in [x.strip() for x in re.split(r"(?<=[.!?])\s+", text) if x.strip()]:
+        audio, sr = k.create(sent, voice=voice, speed=speed, lang="en-us")
+        pause = 0.35 if sent.endswith(("?", "!")) else 0.22
+        parts += [audio, np.zeros(int(sr * pause), dtype=audio.dtype)]
+    full = np.concatenate(parts)
+    sf.write(str(wav), full, sr)
+    return len(full) / sr
 
 
 def word_times(wav: Path) -> list[dict]:
@@ -76,7 +84,7 @@ def subtitles(words: list[dict], hook: str, dur: float) -> str:
     return ASS_HEADER + "\n".join(ev) + "\n"
 
 
-def background_input(dur: float) -> list[str]:
+def background_input(dur: float, work: Path) -> list[str]:
     clips = sorted((SKILL / "backgrounds").glob("*.mp4"))
     if clips:
         clip = random.choice(clips)
@@ -84,10 +92,10 @@ def background_input(dur: float) -> list[str]:
                               "-of", "csv=p=0", str(clip)], capture_output=True, text=True, check=True)
         start = random.uniform(0, max(float(out.stdout.strip()) - dur - 1, 0))
         return ["-stream_loop", "-1", "-ss", f"{start:.1f}", "-i", str(clip)]
-    colors = random.choice([("0x1d0b3a", "0x7a1fa2", "0xff3d7f"), ("0x041e3a", "0x0e7c86", "0x38ef7d"),
-                            ("0x2b0a0a", "0xb3261e", "0xffb02e")])
-    return ["-f", "lavfi", "-i", f"gradients=s={W}x{H}:c0={colors[0]}:c1={colors[1]}:c2={colors[2]}"
-                                 f":nb_colors=3:speed=0.015:d={dur + 1}"]
+    bg = work / "bg.mp4"  # generated 'satisfying' physics animation
+    subprocess.run([sys.executable, str(Path(__file__).with_name("bg_satisfying.py")),
+                    f"{dur + 1:.1f}", str(bg), str(random.randint(0, 10**6))], check=True)
+    return ["-i", str(bg)]
 
 
 def main() -> int:
@@ -100,17 +108,17 @@ def main() -> int:
     slug = story["slug"]
     wav, ass = out / f"{slug}.wav", out / f"{slug}.ass"
 
-    dur = narrate(story["script"], wav)
+    dur = narrate(story["script"], wav, story.get("voice", DEFAULT_VOICE), story.get("speed", 1.1))
     ass.write_text(subtitles(word_times(wav), story["hook"], dur))
     dst = out / f"{slug}.mp4"
     vf = (f"[0:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
           f"setsar=1,fps=30,ass={ass}[v]")
-    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", *background_input(dur),
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", *background_input(dur, out),
                     "-i", str(wav), "-filter_complex", vf, "-map", "[v]", "-map", "1:a",
                     "-t", f"{dur + 0.3:.2f}", "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
                     "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(dst)], check=True)
-    wav.unlink()
-    ass.unlink()
+    for tmp in (wav, ass, out / "bg.mp4"):
+        tmp.unlink(missing_ok=True)
     (out / f"{slug}.post.json").write_text(json.dumps({
         "title": story["title"], "caption": story["caption"], "file": dst.name,
         "duration": round(dur, 1), "ai_generated": True}, indent=1))
