@@ -23,3 +23,10 @@
 
 ## Accounts to connect in n8n (Credentials → Add)
 - YouTube OAuth2, Google Drive OAuth2, Gmail OAuth2 – sign in with the Google account that owns the **creator.chaos** channel.
+
+## Clip intake (created 2026-10-03 – id `irCTwo3a0cbRffKz`)
+**creator.chaos – Clip intake**: a webhook Claude POSTs each rendered clip to
+(multipart file + `campaign, clip_name, title, description, publish_at`). It saves
+the file to Google Drive and adds a `queued` row to `creator_chaos_post_queue`.
+Requests must carry the `x-cc-key` header (kept out of this repo). Needs to be
+switched on (Publish) in n8n before it accepts uploads.
