@@ -1,2 +1,4 @@
 clips-work/
 __pycache__/
+.claude/skills/story-maker/voices/
+.claude/skills/story-maker/backgrounds/
