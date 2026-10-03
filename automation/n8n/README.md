@@ -6,8 +6,8 @@
   publish_at, status, post_url, error`. One row = one post. `status` is
   `queued` → `posted` (or `failed`, with the reason in `error`).
 
-## Workflow (validated, not yet created – needs your approval)
-**creator.chaos – Auto-post YouTube Shorts**, every 30 min:
+## Workflow (created 2026-10-03, not yet active – id `4M8dsXMG5HWcVHMp`)
+**creator.chaos – Auto-post YouTube Shorts**, every 30 min (rows with `campaign = TEST` upload as unlisted):
 1. Read rows where `status = queued` and `platform = youtube`, oldest `publish_at` first.
 2. Keep only rows whose `publish_at` has passed; take **one** per run (keeps posts spaced).
 3. Download the clip from Google Drive (`drive_file_id`).
