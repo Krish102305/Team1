@@ -11,8 +11,10 @@
 1. Read rows where `status = queued` and `platform = youtube`, oldest `publish_at` first.
 2. Keep only rows whose `publish_at` has passed; take **one** per run (keeps posts spaced).
 3. Download the clip from Google Drive (`drive_file_id`).
-4. Upload to YouTube as a **public** Short (Entertainment, not made for kids).
-5. Save `https://youtube.com/shorts/<id>` to the row and email you the link to submit on Whop.
+4. Send it to **Upload-Post** for YouTube + TikTok (paid-promotion / branded-content flags on; TEST rows go unlisted / private).
+5. Wait 3 min, fetch the live links from Upload-Post, save them to the row and email them to you to submit on Whop.
+
+Direct YouTube upload was dropped: n8n's shared Google app hits YouTube's daily upload quota, and a personal Google app forces uploads to private until audited.
 6. If the upload fails, mark the row `failed` with the error instead of retrying forever.
 
 ## Not automated (and why)
