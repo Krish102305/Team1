@@ -19,7 +19,7 @@ for (let m = 0; m < n; m++) {
   };
   const e = new GameEngine(cfg);
   e.autoplay = true; e.headless = true;
-  let dbg = 0; if (process.env.DBG) e.debugLog = (s) => { if (dbg++ < 14) console.log('  DBG', s); };
+  let dbg = 0; if (process.env.DBG) e.debugLog = (s) => { if (!process.env.DBGF || s.startsWith(process.env.DBGF)) { if (dbg++ < 40) console.log('  DBG', s); } };
   const notes: string[] = [];
   e.listener = { ...e.listener, onNotify: (t) => { tally[t] = (tally[t] ?? 0) + 1; }, onCommentary: () => {}, onState() {}, onPhase() {}, onTiming() {}, onSound() {}, onReplayAvailable() {} };
   let guard = 0;

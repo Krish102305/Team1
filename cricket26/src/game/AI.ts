@@ -143,10 +143,10 @@ export function runSafetyMargin(timeToComplete: number, ballArrivalAtEnd: number
 }
 
 export function aiRunThreshold(p: Player, s: SituationCtx): number {
-  let m = p.personality === 'defensive' ? 1.0 : p.personality === 'balanced' ? 0.75 : p.personality === 'aggressive' ? 0.5 : 0.6;
+  let m = p.personality === 'defensive' ? 1.35 : p.personality === 'balanced' ? 1.1 : p.personality === 'aggressive' ? 0.85 : 0.95;
   if (s.rrr !== null && s.rrr > 10) m -= 0.2;
   if (s.ballsLeft <= 6 && s.rrr !== null) m -= 0.25;
   if (s.difficulty === 'easy') m -= 0.25; // easy AI takes silly runs
   if (s.difficulty === 'pro') m += 0.1;
-  return Math.max(0.2, m);
+  return Math.max(0.45, m);
 }

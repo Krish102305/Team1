@@ -2,7 +2,7 @@
 
 A single-player 3D cricket game that runs in your browser. You pick two of ten international sides, set up a match, call the toss, then bat and bowl a full match against a computer-controlled team inside a 3D stadium.
 
-All teams' players, stadiums and brands are fictional and original. All 3D models, textures and sounds are generated in code, so there are no downloaded assets and no copyrighted material.
+Teams use **real current international squads** (personal, non-commercial use; player ratings are my own estimates). Stadiums and advertising brands are fictional. All 3D models, textures and sounds are generated in code, so there are no downloaded assets and no copyrighted material.
 
 ## Run it
 
@@ -29,25 +29,25 @@ Other scripts:
 
 ### Batting (default keys, all remappable in Settings)
 
+Directions are **screen-relative**: A always hits to the left of the screen and D to the right. For a right-hander that means A = leg side, D = off side; for a left-hander it flips automatically (A = off side). The shot selector widget (bottom-right) shows OFF/LEG for whoever is on strike.
+
 | Key | Action |
 |---|---|
-| **D** | Off-side shot (cover drive, square cut, late cut…) |
-| **W** | Straight / on-side shot (straight drive, on drive, back-foot punch…) |
-| **A** | Leg-side shot (flick, glance, pull, hook…) |
-| **S** | Defend (Shift+S = leave). Also used to turn back while running |
-| **Space** | Power shot (combine with a direction key) |
-| hold **Shift** | Lofted modifier (lofted drive, lofted pull, slog, upper cut…) |
-| **← / →** | Aim the shot left or right |
-| hold **↑** | Front foot (against spin: dance down the track. You can be stumped) |
-| hold **↓** | Back foot (with A: sweep; with D: late cut or reverse sweep; with W: paddle scoop) |
+| **W / A / D** | Hit straight / screen-left / screen-right. Combine for diagonals (W+D = cover/extra-cover region for a right-hander) |
+| **Q / E** | Hit fine, behind square (glance, late cut, paddle, ramp) |
+| *pressing a direction* | Plays a **ground shot** in that direction, timed from the key press |
+| **L** | **Lofted shot** in the direction you're holding (straight if none). Tap L just after a direction key also works |
+| **Space** | Power shot in the held direction |
+| **S** | Defend (also: turn back while running) |
+| **Z** | Leave the ball |
+| hold **Shift** | Soft hands — dab it into the gap for a quick single |
+| hold **X** | Sweep family: sweep / paddle sweep / reverse sweep; with L: slog sweep, paddle scoop, ramp, reverse hit |
+| hold **J** / **K** | Front foot / back foot (otherwise chosen automatically from the length) |
+| **← / →** | Shuffle across the crease (make room, or get outside off) before the ball arrives |
+| hold **↑** / **↓** | Charge down the pitch (turns good-length balls into half-volleys — you can be stumped) / get back in your crease |
 | **R** | Run. Press again during a run to go for another |
 
-The game picks the specific shot from your direction key, your modifiers and the delivery you're facing (length, line and height). **Timing matters most.** Press the key about a quarter of a second before the ball reaches you.
-
-- After contact you'll see a label: Perfect, Good, Early, Late or an edge.
-- Very early or very late swings miss completely.
-- If you play a shot that doesn't suit the ball (for example, pulling a full ball), you risk edges and missed shots.
-- While the ball is live, a **RUN: SAFE / RISKY / DANGER** banner shows the run-out risk.
+The game chooses the actual shot (cover drive, square cut, pull, hook, flick, glance, inside-out loft, upper cut, etc. — over 30 in total) from your direction, footwork, modifiers and the ball you're facing, and the ball goes **where you aimed** (bent by timing: early drags it leg-side, late pushes it off-side). Press about a quarter-second before the ball reaches you; you'll see Perfect / Good / Early / Late. Picking a shot that doesn't suit the ball (pulling a full ball, driving a bouncer) risks edges and misses. With **Pitch marker** on (default for Easy/Medium), a ring shows where each delivery will bounce.
 
 ### Bowling
 
@@ -56,6 +56,8 @@ The game picks the specific shot from your direction key, your modifiers and the
 | Mouse, or **A/D** and **W/S** (or the arrow keys) | Move the line and length target on the pitch |
 | **Q** | Change delivery type (pace bowlers: good length, full, yorker, bouncer, in/outswinger, cutters, slower ball. Spinners: stock ball, googly, top-spinner, slider, arm ball) |
 | **E** | Pace variation (stock / quicker / slower) |
+| **T** | Bowl over / around the wicket |
+| **F** | Field setting: Auto, Attacking, Balanced, Defensive, Death |
 | hold **Space** | Run in. **Release in the green zone** of the meter for an accurate delivery. Releasing too late (red) is an overstep, which is a no-ball |
 
 You choose your bowler at the start of each over, either by clicking or by pressing the number keys.

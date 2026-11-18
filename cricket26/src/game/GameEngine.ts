@@ -922,13 +922,13 @@ export class GameEngine {
     const pitch = plan.bounceIndex >= 0 ? plan.path[plan.bounceIndex] : null;
     const strictness = this.userBatting ? ({ easy: 0.6, medium: 0.85, hard: 1, pro: 1 } as const)[this.difficulty] : 1;
     // umpire's call: ball must be clearly hitting (centre within ~2/3 of the stumps)
-    const hitting = !!at && Math.abs(at.x) < STUMP_HALF_W * 0.8 * strictness && at.y < STUMP_H - 0.05;
+    const hitting = !!at && Math.abs(at.x) < STUMP_HALF_W * 0.7 * strictness && at.y < STUMP_H - 0.05;
     const tooFar = STUMPS_Z - b.z > 2.6;
     const pitchedOutsideLeg = !!pitch && pitch.x * os < -(STUMP_HALF_W + BALL_R);
     const impactLine = b.x * os;
     const shotOffered = !!d.shot && d.shot.contact !== 'leave';
     const inLine = Math.abs(impactLine) <= STUMP_HALF_W + BALL_R || (!shotOffered && impactLine > 0);
-    d.lbwOut = hitting && !tooFar && !pitchedOutsideLeg && inLine && !d.noBall && !d.freeHit && !d.wide && rand() > 0.25;
+    d.lbwOut = hitting && !tooFar && !pitchedOutsideLeg && inLine && !d.noBall && !d.freeHit && !d.wide && rand() > 0.35;
     d.lbwT = 0;
     // deflection off pad
     this.ball.v = { x: this.ball.v.x * 0.2 + gauss() * 1.6, y: 1.2, z: -Math.abs(this.ball.v.z) * randRange(0.05, 0.18) };
@@ -1453,10 +1453,13 @@ export class GameEngine {
     if (this.ballMode === 'held' && this.holder >= 0) {
       const a = this.actors[this.fielders[this.holder].a]; cx = a.x; cz = a.z; ts = this.fielders[this.holder].stats.throwSpeed;
       tCollect = 0.3;
-    } else if (this.ballMode === 'throw') {
-      return Math.hypot(b.x, b.z - E * STUMPS_Z) / 25;
+    } else if (this.ballMode === 'throw' && this.throwInfo) {
+      // the throw can be relayed to the other end by whoever takes it
+      const toTarget = Math.hypot(b.x, b.z - this.throwInfo.end * STUMPS_Z) / 25;
+      return this.throwInfo.end === E ? toTarget : toTarget + 0.45 + (2 * STUMPS_Z) / 26;
     } else if (this.predictedCollect) {
-      if (this.predictedCollect.boundary) return 99;
+      // only trust "it's going to the rope" once the ball has beaten the infield
+      if (this.predictedCollect.boundary && Math.hypot(b.x, b.z) > 32) return 99;
       tCollect = Math.max(0, this.predictedCollect.t - this.t) + 0.5;
       cx = this.predictedCollect.x; cz = this.predictedCollect.z;
       if (this.chaser >= 0) ts = this.fielders[this.chaser].stats.throwSpeed;
@@ -1482,7 +1485,7 @@ export class GameEngine {
     this.aiRunDecisionT -= SIM_STEP;
     if (this.aiRunDecisionT > 0) return;
     this.aiRunDecisionT = 0.15;
-    if (this.predictedCollect?.boundary && this.ballMode === 'flight') { if (!this.runners.some((r) => r.running) && d.liveT > 0.5 && d.liveT < 1.5) this.startRun(); return; }
+    if (this.predictedCollect?.boundary && this.ballMode === 'flight' && Math.hypot(this.ball.p.x, this.ball.p.z) > 32) { if (!this.runners.some((r) => r.running) && d.liveT < 2.5) this.startRun(); return; }
     const running = this.runners.some((r) => r.running);
     const sit = this.situation();
     const thr = aiRunThreshold(this.striker, sit) + gauss() * (this.difficulty === 'pro' ? 0.06 : this.difficulty === 'easy' ? 0.25 : 0.14);
@@ -1492,7 +1495,8 @@ export class GameEngine {
       const tc = this.timeToComplete();
       const E = -this.runners[0].end;
       const tb = Math.min(this.ballToEndTime(E), this.ballToEndTime(-E));
-      if (tb - tc > thr) {
+      const behind = this.ball.v.z > 0.5 && this.ball.p.z > BATTER_Z - 6; // fine / behind square: keeper is close
+      if (tb - tc > thr + (behind ? 0.7 : 0)) {
         if (this.debugLog) this.debugLog(`AIRUN liveT=${d.liveT.toFixed(2)} tb=${tb.toFixed(2)} tc=${tc.toFixed(2)} thr=${thr.toFixed(2)} mode=${this.ballMode} holder=${this.holder} pc=${this.predictedCollect ? (this.predictedCollect.t - this.t).toFixed(2) + (this.predictedCollect.boundary ? 'B' : '') : '-'} chaser=${this.chaser}`);
         this.startRun();
       }
@@ -1500,10 +1504,12 @@ export class GameEngine {
       // decide on another run when the current one is nearly complete
       const near = this.runners.every((r) => Math.abs(r.target * CREASE_Z - r.z) < 4.5);
       if (!near) return;
+      // only push for another run while the ball is still loose in the field
+      if (this.ballMode !== 'flight' || this.holder >= 0) return;
       const tNext = this.timeToComplete() + 17.7 / 6.5 + 0.3;
       const E = this.runners[0].target * -1;
       const tb = Math.min(this.ballToEndTime(E), this.ballToEndTime(-E));
-      if (tb - tNext > thr + 0.4) this.runQueued = true;
+      if (tb - tNext > thr + 0.4 + this.runsDone * 0.5) this.runQueued = true;
     }
   }
 
