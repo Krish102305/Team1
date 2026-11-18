@@ -308,19 +308,24 @@ function BowlerSelect({ e }: { e: GameEngine }) {
   useHud();
   const ids = e.match.eligibleBowlers();
   const list = ids.length ? ids : e.inn.bowlingXI.filter((id) => id !== e.inn.prevBowlerId);
+  const listRef = useRef(list);
+  listRef.current = list;
   useEffect(() => {
     const h = (ev: KeyboardEvent) => {
-      const n = parseInt(ev.key, 10);
-      if (n >= 1 && n <= list.length) e.selectBowler(list[n - 1]);
+      const L = listRef.current;
+      if (ev.code === 'Enter' || ev.code === 'NumpadEnter') { if (L.length) e.selectBowler(L[0]); return; }
+      const m = /^(Digit|Numpad)(\d)$/.exec(ev.code);
+      const n = m ? Number(m[2]) : NaN;
+      if (n >= 1 && n <= L.length) e.selectBowler(L[n - 1]);
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
-  }, [e, list]);
+  }, [e]);
   return (
     <div className="overlay">
       <div className="modal">
         <h2>Choose <span>Bowler</span></h2>
-        <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 10 }}>Over {Math.floor(e.inn.legalBalls / 6) + 1} · max {e.match.maxBowlerOvers} overs per bowler</div>
+        <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 10 }}>Over {Math.floor(e.inn.legalBalls / 6) + 1} · max {e.match.maxBowlerOvers} overs per bowler · press a number, or Enter for the top pick</div>
         <div className="bowler-list">
           {list.map((id, i) => {
             const p = getPlayer(id), c = e.inn.bowlers[id];
