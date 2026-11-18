@@ -2,10 +2,12 @@ import { useEffect, useMemo, useRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { GameEngine, Actor } from '../../game/GameEngine';
-import { buildRig, applyActor, Rig, mat } from './PlayerRig';
+import { buildRig, applyActor, Rig, mat, setIdentity, disposeRig } from './PlayerRig';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { EffectComposer, Bloom, Vignette, HueSaturation, BrightnessContrast, SMAA } from '@react-three/postprocessing';
 import { buildSky, buildStadium, Quality, StadiumHandles } from './StadiumBuilder';
 import { STADIUM_MAP, StadiumDef } from '../../data/stadiums';
-import { TEAM_MAP } from '../../data/teams';
+import { TEAM_MAP, PLAYER_MAP } from '../../data/teams';
 import type { TimeOfDay } from '../../game/types';
 import { BATTER_Z, STUMPS_Z } from '../../game/constants';
 import { hashString } from '../../utils/random';
@@ -14,18 +16,25 @@ import { ReplayFrame } from '../../game/Replay';
 import { audio } from '../../game/Audio';
 import { oversText } from '../../game/MatchManager';
 
-const SKIN = ['#8d5524', '#a8713f', '#c68642', '#e0ac69', '#f1c27d', '#6b4226', '#4a2c17', '#d8a47f'];
+const SKIN = ['#7a4a2a', '#8f5d3b', '#a87452', '#c08a66', '#d4a585', '#5e3a22', '#6e4630', '#b98463'];
 
 export function Lighting({ def, time, quality }: { def: StadiumDef; time: TimeOfDay; quality: Quality }) {
   const sky = def.sky[time];
   const { scene, gl } = useThree();
   const skyGroup = useMemo(() => buildSky(sky.top, sky.bottom, time === 'night'), [sky.top, sky.bottom, time]);
   useEffect(() => {
-    scene.fog = new THREE.Fog(sky.fog, 160, 900);
-    gl.toneMappingExposure = time === 'night' ? 0.95 : 1.0;
-    return () => { scene.fog = null; };
-  }, [scene, gl, sky.fog, time]);
+    scene.fog = new THREE.Fog(sky.fog, 180, 950);
+    gl.toneMappingExposure = time === 'night' ? 1.0 : time === 'evening' ? 1.02 : 1.05;
+    // image-based lighting for nicer helmets, bats, pads and boards
+    if (quality === 'low') { return () => { scene.fog = null; }; }
+    const pmrem = new THREE.PMREMGenerator(gl);
+    const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environment = envTex;
+    (scene as unknown as { environmentIntensity: number }).environmentIntensity = time === 'night' ? 0.25 : 0.45;
+    return () => { scene.fog = null; scene.environment = null; envTex.dispose(); pmrem.dispose(); };
+  }, [scene, gl, sky.fog, time, quality]);
   useEffect(() => () => { skyGroup.traverse((o) => { const m = o as THREE.Mesh; m.geometry?.dispose(); (m.material as THREE.Material | undefined)?.dispose?.(); }); }, [skyGroup]);
+  useFrame((_, dt) => { skyGroup.children.forEach((c) => { if (c.userData.spin) c.rotation.y += dt * 0.004; }); });
   const sunPos: [number, number, number] = time === 'day' ? [45, 90, 35] : time === 'evening' ? [90, 38, -55] : [25, 95, 15];
   const mapSize = quality === 'high' ? 4096 : quality === 'medium' ? 2048 : 1024;
   return (
@@ -54,8 +63,8 @@ export function Lighting({ def, time, quality }: { def: StadiumDef; time: TimeOf
   );
 }
 
-export function StadiumObject({ def, time, quality, onReady }: { def: StadiumDef; time: TimeOfDay; quality: Quality; onReady?: (h: StadiumHandles) => void }) {
-  const handles = useMemo(() => buildStadium(def, time, quality), [def, time, quality]);
+export function StadiumObject({ def, time, quality, onReady, teamColors }: { def: StadiumDef; time: TimeOfDay; quality: Quality; onReady?: (h: StadiumHandles) => void; teamColors?: string[] }) {
+  const handles = useMemo(() => buildStadium(def, time, quality, teamColors ?? []), [def, time, quality, teamColors]);
   useEffect(() => { onReady?.(handles); return () => handles.dispose(); }, [handles, onReady]);
   return <primitive object={handles.group} />;
 }
@@ -74,6 +83,7 @@ function makeBallMesh(color: 'white' | 'red') {
 // ---------------------------------------------------------------- the world
 function World({ engine, def, quality }: { engine: GameEngine; def: StadiumDef; quality: Quality }) {
   const { camera, scene } = useThree();
+  (window as unknown as { __scene: THREE.Scene }).__scene = scene;
   const stadiumRef = useRef<StadiumHandles | null>(null);
   const rigsRef = useRef<{ version: number; rigs: Rig[]; group: THREE.Group }>({ version: -1, rigs: [], group: new THREE.Group() });
   const ball = useMemo(() => makeBallMesh(def.ballColor), [def.ballColor]);
@@ -138,7 +148,7 @@ function World({ engine, def, quality }: { engine: GameEngine; def: StadiumDef; 
 
   const buildRigs = () => {
     const R = rigsRef.current;
-    for (const r of R.rigs) R.group.remove(r.mirror);
+    for (const r of R.rigs) { R.group.remove(r.mirror); disposeRig(r); }
     R.rigs = engine.actors.map((a: Actor) => {
       const team = a.teamId ? TEAM_MAP[a.teamId] : null;
       const h = hashString(a.playerId ?? String(Math.random()));
@@ -151,6 +161,8 @@ function World({ engine, def, quality }: { engine: GameEngine; def: StadiumDef; 
         hair: '#1b1410',
         kind: a.kind === 'umpire' ? 'umpire' : isKeeper ? 'keeper' : a.kind === 'batter' ? 'batter' : 'fielder',
         helmet: a.kind === 'batter',
+        secondary: team ? (isKeeper ? team.primary : team.secondary) : '#333333',
+        seed: h,
       });
       R.group.add(rig.mirror);
       return rig;
@@ -167,6 +179,10 @@ function World({ engine, def, quality }: { engine: GameEngine; def: StadiumDef; 
     const frame: ReplayFrame | null = engine.replay.active ? engine.replay.frame() : null;
     const actors = frame ? frame.actors : engine.actors;
     const rigs = rigsRef.current.rigs;
+    for (let i = 0; i < rigs.length && i < actors.length; i++) {
+      const pid = actors[i].playerId;
+      if (pid && PLAYER_MAP[pid]) { const p = PLAYER_MAP[pid]; const t = TEAM_MAP[p.teamId]; setIdentity(rigs[i], p.name, p.number, engine.actors[i]?.gear === 'keeper' ? t.primary : t.secondary); }
+    }
     for (let i = 0; i < rigs.length && i < actors.length; i++) applyActor(rigs[i], actors[i], engine.replay.active ? dt * engine.replay.speed : dt * (engine.paused ? 0 : 1));
 
     // ball
@@ -217,9 +233,8 @@ function World({ engine, def, quality }: { engine: GameEngine; def: StadiumDef; 
       const tilt = (g: THREE.Group, t: number) => { g.rotation.x = t > 0 ? Math.min(0.25, t * 2) : 0; };
       tilt(st.stumps.striker, bails.striker); tilt(st.stumps.other, bails.other);
       st.env.rotation.y = engine.endFlip ? Math.PI : 0;
-      const u = st.crowdMat.userData.shader?.uniforms;
       excite.current = Math.max(0, excite.current - dt * 0.22);
-      if (u) { u.uTime.value += dt; u.uExcite.value = excite.current; }
+      st.tick(dt, excite.current);
       audio.setAmbience(0.25 + excite.current * 0.6);
     }
 
@@ -244,11 +259,12 @@ function World({ engine, def, quality }: { engine: GameEngine; def: StadiumDef; 
     updateCamera(engine, camera as THREE.PerspectiveCamera, camState.current, dt, settings.camera, settings.cameraSmoothing, frame, tmp);
   });
 
+  const teamColors = useMemo(() => { const a = TEAM_MAP[engine.config.userTeamId], b = TEAM_MAP[engine.config.aiTeamId]; return [a.primary, b.primary, a.secondary, b.secondary]; }, [engine]);
   const onReady = useMemo(() => (h: StadiumHandles) => { stadiumRef.current = h; useGame.getState().bumpHud(); }, []);
 
   return (
     <>
-      <StadiumObject def={def} time={engine.config.timeOfDay} quality={quality} onReady={onReady} />
+      <StadiumObject def={def} time={engine.config.timeOfDay} quality={quality} onReady={onReady} teamColors={teamColors} />
       {/* invisible plane for mouse targeting */}
       <mesh rotation-x={-Math.PI / 2} position={[0, 0.03, 0]} onPointerMove={(e) => engine.setTargetFromWorld(e.point.x, e.point.z)}>
         <planeGeometry args={[8, 26]} />
@@ -374,15 +390,30 @@ function updateCamera(e: GameEngine, cam: THREE.PerspectiveCamera, cs: { pos: TH
   if (Math.abs(cam.fov - fov) > 0.05) { cam.fov += (fov - cam.fov) * Math.min(1, dt * 3); cam.updateProjectionMatrix(); }
 }
 
+/** broadcast-style post-processing: bloom on lights, slight grade and vignette */
+export function PostFX({ quality, time }: { quality: Quality; time: TimeOfDay }) {
+  if (quality === 'low') return null;
+  return (
+    <EffectComposer multisampling={quality === 'high' ? 4 : 0} enableNormalPass={false}>
+      <Bloom intensity={time === 'night' ? 0.85 : time === 'evening' ? 0.5 : 0.22} luminanceThreshold={time === 'night' ? 0.72 : 0.88} luminanceSmoothing={0.2} mipmapBlur />
+      <HueSaturation saturation={0.06} />
+      <BrightnessContrast contrast={0.07} brightness={0.0} />
+      <Vignette eskil={false} offset={0.28} darkness={0.42} />
+      {quality === 'medium' ? <SMAA /> : <></>}
+    </EffectComposer>
+  );
+}
+
 export function MatchCanvas({ engine }: { engine: GameEngine }) {
   const quality = useGame((s) => s.settings.quality);
   const def = STADIUM_MAP[engine.config.stadiumId];
   const dpr: [number, number] = quality === 'high' ? [1, 2] : quality === 'medium' ? [1, 1.5] : [0.75, 1];
   return (
-    <Canvas shadows={quality !== 'low'} dpr={dpr} gl={{ antialias: quality !== 'low', powerPreference: 'high-performance' }}
+    <Canvas shadows={quality !== 'low'} dpr={dpr} gl={{ antialias: quality === 'low', powerPreference: 'high-performance', stencil: false }}
       camera={{ fov: 45, near: 0.1, far: 2000, position: [0, 30, 90] }}>
       <Lighting def={def} time={engine.config.timeOfDay} quality={quality} />
       <World engine={engine} def={def} quality={quality} />
+      <PostFX quality={quality} time={engine.config.timeOfDay} />
     </Canvas>
   );
 }

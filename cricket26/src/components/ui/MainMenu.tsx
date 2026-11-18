@@ -1,12 +1,17 @@
 import { useMemo, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { useGame } from '../../store/gameStore';
-import { Lighting, StadiumObject } from '../three/MatchScene';
+import { Lighting, StadiumObject, PostFX } from '../three/MatchScene';
+import type { StadiumHandles } from '../three/StadiumBuilder';
 import { STADIUM_MAP } from '../../data/stadiums';
 import { buildRig, applyActor } from '../three/PlayerRig';
 import { TEAM_MAP } from '../../data/teams';
 import * as THREE from 'three';
 import { audio } from '../../game/Audio';
+
+const MENU_COLORS = [TEAM_MAP.IND.primary, TEAM_MAP.AUS.primary, TEAM_MAP.IND.secondary, TEAM_MAP.AUS.secondary];
+let menuStadium: StadiumHandles | null = null;
+const setHandles = (h: StadiumHandles) => { menuStadium = h; };
 
 function MenuWorld() {
   const t = useRef(0);
@@ -22,6 +27,7 @@ function MenuWorld() {
   }, []);
   useFrame(({ camera }, dt) => {
     t.current += dt;
+    menuStadium?.tick(dt, 0.15 + Math.max(0, Math.sin(t.current * 0.4)) * 0.4);
     const a = t.current * 0.06 + 0.4;
     camera.position.set(Math.sin(a) * 26 + 6, 4.5 + Math.sin(t.current * 0.2) * 1.5, Math.cos(a) * 26 + 9);
     camera.lookAt(0, 1.2, 6);
@@ -44,7 +50,8 @@ export function MainMenu() {
       <div className="fill">
         <Canvas shadows={quality !== 'low'} dpr={quality === 'high' ? [1, 2] : [1, 1.25]} camera={{ fov: 48, near: 0.1, far: 2000, position: [20, 6, 30] }}>
           <Lighting def={def} time="night" quality={quality === 'high' ? 'medium' : quality} />
-          <StadiumObject def={def} time="night" quality={quality === 'high' ? 'medium' : quality} />
+          <StadiumObject def={def} time="night" quality={quality === 'high' ? 'medium' : quality} teamColors={MENU_COLORS} onReady={setHandles} />
+          <PostFX quality={quality} time="night" />
           <MenuWorld />
         </Canvas>
       </div>
@@ -55,7 +62,7 @@ export function MainMenu() {
         <button className="menu-btn" onClick={() => go('settings')}><span>Settings</span></button>
         <button className="menu-btn" onClick={() => go('exit')}><span>Exit Game</span></button>
       </div>
-      <div className="menu-foot">All teams, players, stadiums and brands are fictional. Keyboard: W A S D · Space · Shift · Arrows · R</div>
+      <div className="menu-foot">Real international squads (ratings are estimates) · fictional stadiums &amp; brands · Bat: A/W/D + Q/E aim · L loft · J/K feet · ←→ shuffle · R run</div>
     </div>
   );
 }

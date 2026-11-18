@@ -182,6 +182,8 @@ function Hints({ e }: { e: GameEngine }) {
   useHud();
   if (!show || ph === 'intro') return null;
   const K = (a: keyof typeof k) => <span className="kbd">{keyLabel(k[a][0])}</span>;
+  // after a couple of overs, shrink to a one-line reminder (full list stays in Pause → Settings)
+  if (e.inn.legalBalls >= 12) return <div className="hints">{K('pause')} pause → Settings shows all controls · {K('replay')} replay · {K('camera')} camera</div>;
   if (e.userRole === 'bat') return (
     <div className="hints">
       <b>BATTING</b> — hit as the ball arrives<br />

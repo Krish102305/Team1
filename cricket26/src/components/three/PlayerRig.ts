@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Actor } from '../../game/GameEngine';
 import type { AnimFamily } from '../../data/shots';
 import { SWING_LEAD } from '../../game/constants';
@@ -36,12 +37,20 @@ function mesh(g: THREE.BufferGeometry, m: THREE.Material, x = 0, y = 0, z = 0, c
 
 export function makeBat(): THREE.Group {
   const g = new THREE.Group();
-  const handle = mesh(cyl(0.017, 0.017, 0.3), mat('#202020', { rough: 0.9 }), 0, -0.15, 0);
-  const grip = mesh(cyl(0.019, 0.019, 0.2), mat('#c81e2a', { rough: 0.9 }), 0, -0.12, 0);
-  const blade = mesh(box(0.108, 0.56, 0.04), mat('#e8cf98', { rough: 0.6 }), 0, -0.58, -0.005);
-  const spine = mesh(box(0.05, 0.5, 0.03), mat('#dcc184', { rough: 0.6 }), 0, -0.6, -0.025);
-  const sticker = mesh(box(0.09, 0.12, 0.002), mat('#1d4fa3'), 0, -0.42, 0.016, false);
-  g.add(handle, grip, blade, spine, sticker);
+  const handle = mesh(cyl(0.016, 0.018, 0.3, 10), mat('#202020', { rough: 0.9 }), 0, -0.15, 0);
+  const grip = mesh(cyl(0.02, 0.02, 0.21, 12), mat('#c81e2a', { rough: 0.95 }), 0, -0.12, 0);
+  const bladeGeo = geo('blade', () => {
+    const sh = new THREE.Shape();
+    sh.moveTo(-0.054, 0); sh.lineTo(0.054, 0); sh.lineTo(0.054, -0.52); sh.quadraticCurveTo(0.054, -0.56, 0.04, -0.56); sh.lineTo(-0.04, -0.56); sh.quadraticCurveTo(-0.054, -0.56, -0.054, -0.52); sh.lineTo(-0.054, 0);
+    const e = new THREE.ExtrudeGeometry(sh, { depth: 0.022, bevelEnabled: true, bevelThickness: 0.008, bevelSize: 0.006, bevelSegments: 2 });
+    e.translate(0, -0.3, -0.011);
+    return e;
+  });
+  const blade = mesh(bladeGeo, mat('#ecd29d', { rough: 0.55 }), 0, 0, 0);
+  const spine = mesh(geo('batSpine', () => { const c = new THREE.CapsuleGeometry(0.022, 0.4, 4, 8); c.scale(1, 1, 0.8); return c; }), mat('#dcc184', { rough: 0.55 }), 0, -0.6, -0.022);
+  const sticker = mesh(box(0.092, 0.13, 0.002), mat('#1d4fa3'), 0, -0.42, 0.02, false);
+  const sticker2 = mesh(box(0.092, 0.05, 0.002), mat('#ffc72c'), 0, -0.78, 0.02, false);
+  g.add(handle, grip, blade, spine, sticker, sticker2);
   return g;
 }
 
@@ -49,14 +58,14 @@ export function makeBat(): THREE.Group {
 export interface Rig {
   root: THREE.Group;     // positioned in world (inside mirror group)
   mirror: THREE.Group;
-  hips: THREE.Group;
-  spine: THREE.Group;
-  chest: THREE.Group;
-  head: THREE.Group;
-  lSh: THREE.Group; lEl: THREE.Group; rSh: THREE.Group; rEl: THREE.Group;
-  lHand: THREE.Group; rHand: THREE.Group;
-  lHip: THREE.Group; lKnee: THREE.Group; rHip: THREE.Group; rKnee: THREE.Group;
-  lAnk: THREE.Group; rAnk: THREE.Group;
+  hips: THREE.Object3D;
+  spine: THREE.Object3D;
+  chest: THREE.Object3D;
+  head: THREE.Object3D;
+  lSh: THREE.Object3D; lEl: THREE.Object3D; rSh: THREE.Object3D; rEl: THREE.Object3D;
+  lHand: THREE.Object3D; rHand: THREE.Object3D;
+  lHip: THREE.Object3D; lKnee: THREE.Object3D; rHip: THREE.Object3D; rKnee: THREE.Object3D;
+  lAnk: THREE.Object3D; rAnk: THREE.Object3D;
   bat: THREE.Group | null;
   batMode: 'hands' | 'carry' | 'none';
   ball: THREE.Mesh | null;
@@ -72,75 +81,224 @@ const P = {
 } as const;
 const NP = 27;
 
-export interface RigLook { jersey: string; pants: string; accent: string; skin: string; hair: string; kind: Rig['kind']; helmet: boolean }
+export interface RigLook {
+  jersey: string; pants: string; accent: string; skin: string; hair: string; kind: Rig['kind']; helmet: boolean;
+  secondary?: string; seed?: number; teamShort?: string;
+}
+
+// smoother shared shapes
+const torsoGeo = () => geo('torso', () => { const g = new THREE.CapsuleGeometry(0.155, 0.28, 6, 16); g.scale(1.12, 1, 0.78); return g; });
+const shoulderGeo = () => geo('shoulder', () => new THREE.SphereGeometry(0.062, 14, 10));
+const limb = (r: number, l: number) => geo(`limb${r}-${l}`, () => new THREE.CapsuleGeometry(r, l, 6, 14));
+const shoeGeo = () => geo('shoe', () => { const g = new THREE.CapsuleGeometry(0.048, 0.17, 4, 10); g.rotateX(Math.PI / 2); g.scale(1.05, 0.75, 1); return g; });
+const soleGeo = () => geo('sole', () => new THREE.BoxGeometry(0.1, 0.022, 0.27));
+const padGeo = () => geo('pad', () => { const g = new THREE.CapsuleGeometry(0.075, 0.38, 4, 12); g.scale(1.05, 1, 0.75); return g; });
+const gloveGeo = () => geo('glove', () => { const g = new THREE.SphereGeometry(0.05, 12, 10); g.scale(0.85, 1.2, 0.85); return g; });
+const keeperGloveGeo = () => geo('kglove', () => { const g = new THREE.SphereGeometry(0.068, 12, 10); g.scale(1, 1.15, 0.7); return g; });
+
+/** Merge static meshes that share a material inside each bone group (cuts draw calls ~3x). */
+export function mergeStatic(group: THREE.Object3D, recurse = true) {
+  const buckets = new Map<THREE.Material, THREE.Mesh[]>();
+  for (const c of [...group.children]) {
+    const m = c as THREE.Mesh;
+    if (m.isMesh && !(m as unknown as THREE.InstancedMesh).isInstancedMesh && !m.userData.noMerge && !Array.isArray(m.material)) {
+      const arr = buckets.get(m.material as THREE.Material) ?? [];
+      arr.push(m); buckets.set(m.material as THREE.Material, arr);
+    } else if (!m.isMesh && recurse) mergeStatic(c);
+  }
+  for (const [material, meshes] of buckets) {
+    if (meshes.length < 2) continue;
+    const anyNonIndexed = meshes.some((m) => !m.geometry.index);
+    const geos = meshes.map((m) => {
+      m.updateMatrix();
+      let g = m.geometry.clone();
+      if (anyNonIndexed && g.index) g = g.toNonIndexed();
+      for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv') g.deleteAttribute(k);
+      if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+      g.applyMatrix4(m.matrix);
+      return g;
+    });
+    const merged = mergeGeometries(geos);
+    geos.forEach((g) => g.dispose());
+    if (!merged) continue;
+    const mm = new THREE.Mesh(merged, material);
+    mm.castShadow = meshes.some((m) => m.castShadow);
+    mm.receiveShadow = meshes.some((m) => m.receiveShadow);
+    mm.userData.ownGeo = true;
+    meshes.forEach((m) => group.remove(m));
+    group.add(mm);
+  }
+}
+
+/** Convert the bone hierarchy + per-bone meshes into one SkinnedMesh per material (rigid skinning). */
+function skinRig(root: THREE.Object3D) {
+  root.updateMatrixWorld(true);
+  const rootInv = root.matrixWorld.clone().invert();
+  const bones: THREE.Bone[] = [];
+  root.traverse((o) => { if ((o as THREE.Bone).isBone) bones.push(o as THREE.Bone); });
+  const buckets = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  const remove: THREE.Mesh[] = [];
+  const tmp = new THREE.Matrix4();
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || m.userData.noMerge || Array.isArray(m.material)) return;
+    const parent = m.parent as THREE.Bone | null;
+    if (!parent || !parent.isBone) return;
+    const bi = bones.indexOf(parent);
+    let g = m.geometry.clone();
+    if (g.index) g = g.toNonIndexed();
+    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv') g.deleteAttribute(k);
+    if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+    g.applyMatrix4(tmp.multiplyMatrices(rootInv, m.matrixWorld));
+    const n = g.attributes.position.count;
+    const si = new Uint16Array(n * 4), sw = new Float32Array(n * 4);
+    for (let i = 0; i < n; i++) { si[i * 4] = bi; sw[i * 4] = 1; }
+    g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(si, 4));
+    g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sw, 4));
+    const arr = buckets.get(m.material as THREE.Material) ?? [];
+    arr.push(g); buckets.set(m.material as THREE.Material, arr);
+    remove.push(m);
+  });
+  remove.forEach((m) => m.parent?.remove(m));
+  const skeleton = new THREE.Skeleton(bones);
+  for (const [material, geos] of buckets) {
+    const merged = mergeGeometries(geos);
+    geos.forEach((g) => g.dispose());
+    if (!merged) continue;
+    const sm = new THREE.SkinnedMesh(merged, material);
+    sm.castShadow = true;
+    sm.frustumCulled = false;
+    sm.userData.ownGeo = true;
+    root.add(sm);
+    sm.updateMatrixWorld(true);
+    sm.bind(skeleton, sm.matrixWorld.clone());
+  }
+}
+
+/** paints name + number on the back of the shirt */
+export function setIdentity(rig: Rig, name: string, num: number | undefined, fg: string) {
+  const ud = rig.root.userData as { backTex?: THREE.CanvasTexture; backCanvas?: HTMLCanvasElement; ident?: string };
+  const key = `${name}|${num}`;
+  if (ud.ident === key || !ud.backCanvas || !ud.backTex) return;
+  ud.ident = key;
+  const c = ud.backCanvas.getContext('2d')!;
+  c.clearRect(0, 0, 256, 256);
+  c.fillStyle = fg; c.textAlign = 'center';
+  const surname = name.split(' ').slice(-1)[0].toUpperCase();
+  c.font = `bold ${surname.length > 9 ? 30 : 38}px Arial`;
+  c.fillText(surname, 128, 60);
+  c.font = 'bold 150px Arial';
+  c.fillText(String(num ?? ''), 128, 205);
+  ud.backTex.needsUpdate = true;
+}
 
 export function buildRig(look: RigLook): Rig {
   const mirror = new THREE.Group();
   const root = new THREE.Group();
   mirror.add(root);
-  const jersey = mat(look.jersey, { rough: 0.8 });
-  const pants = mat(look.pants, { rough: 0.85 });
-  const skin = mat(look.skin, { rough: 0.7 });
-  const shoe = mat('#f4f4f4', { rough: 0.6 });
-  const accent = mat(look.accent, { rough: 0.6 });
+  const seed = look.seed ?? Math.floor(Math.random() * 1e6);
+  const rr = (k: number) => ((Math.sin(seed * 12.9898 + k * 78.233) * 43758.5453) % 1 + 1) % 1;
+  const jersey = mat(look.jersey, { rough: 0.72 });
+  const pants = mat(look.pants, { rough: 0.8 });
+  const skin = mat(look.skin, { rough: 0.62 });
+  const shoe = mat('#f6f6f6', { rough: 0.45 });
+  const accent = mat(look.accent, { rough: 0.55 });
+  const second = mat(look.secondary ?? look.accent, { rough: 0.6 });
+  const dark = mat('#141414', { rough: 0.5 });
   const umpire = look.kind === 'umpire';
-  const shirt = umpire ? mat('#cfe3ff', { rough: 0.85 }) : jersey;
+  const shirt = umpire ? mat('#d7e7ff', { rough: 0.85 }) : jersey;
   const trousers = umpire ? mat('#1f2533', { rough: 0.85 }) : pants;
 
-  const hips = new THREE.Group(); hips.position.y = 0.98; root.add(hips);
-  hips.add(mesh(box(0.32, 0.18, 0.2), trousers, 0, 0, 0));
-  const spine = new THREE.Group(); spine.position.y = 0.08; hips.add(spine);
-  spine.add(mesh(capsule(0.155, 0.28), shirt, 0, 0.22, 0));
-  if (!umpire) spine.add(mesh(box(0.27, 0.06, 0.012), accent, 0, 0.32, 0.153, false)); // chest band
-  else spine.add(mesh(box(0.34, 0.5, 0.23), mat('#f2f2f2', { rough: 0.9 }), 0, 0.2, 0)); // umpire coat
-  const chest = new THREE.Group(); chest.position.y = 0.42; spine.add(chest);
-  const head = new THREE.Group(); head.position.y = 0.08; chest.add(head);
-  head.add(mesh(cyl(0.05, 0.055, 0.1), skin, 0, 0.03, 0));
-  head.add(mesh(sphere(0.105), skin, 0, 0.17, 0.01));
-  head.add(mesh(box(0.05, 0.025, 0.02), skin, 0, 0.16, 0.115, false)); // nose
+  const hips = new THREE.Bone(); hips.position.y = 0.98; root.add(hips);
+  const pelvis = mesh(geo('pelvis', () => { const g = new THREE.CapsuleGeometry(0.13, 0.12, 4, 12); g.rotateZ(Math.PI / 2); g.scale(1, 1, 0.8); return g; }), trousers, 0, 0, 0);
+  hips.add(pelvis);
+  const spine = new THREE.Bone(); spine.position.y = 0.08; hips.add(spine);
+  spine.add(mesh(torsoGeo(), shirt, 0, 0.22, 0));
+  if (!umpire) {
+    // side panels / chest trim in secondary colour, collar
+    spine.add(mesh(box(0.3, 0.035, 0.02), second, 0, 0.36, 0.118, false));
+    const collar = new THREE.Mesh(geo('collar', () => new THREE.TorusGeometry(0.065, 0.014, 6, 16)), second);
+    collar.rotation.x = Math.PI / 2; collar.position.set(0, 0.45, 0.005); spine.add(collar);
+    // chest badge
+    const badge = new THREE.Mesh(geo('badge', () => new THREE.CircleGeometry(0.035, 16)), second);
+    badge.position.set(0.075, 0.33, 0.124); spine.add(badge);
+    // name + number on the back
+    const cv = document.createElement('canvas'); cv.width = 256; cv.height = 256;
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+    const back = new THREE.Mesh(geo('backPlane', () => new THREE.PlaneGeometry(0.27, 0.27)), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
+    back.position.set(0, 0.25, -0.123); back.rotation.y = Math.PI; back.userData.noMerge = true; spine.add(back);
+    root.userData.backTex = tex; root.userData.backCanvas = cv;
+  } else spine.add(mesh(box(0.34, 0.5, 0.23), mat('#f2f2f2', { rough: 0.9 }), 0, 0.2, 0)); // umpire coat
+  const chest = new THREE.Bone(); chest.position.y = 0.42; spine.add(chest);
+  const head = new THREE.Bone(); head.position.y = 0.08; chest.add(head);
+  head.add(mesh(cyl(0.048, 0.056, 0.11, 12), skin, 0, 0.03, 0));
+  const skull = mesh(geo('skull', () => { const g = new THREE.SphereGeometry(0.105, 18, 14); g.scale(0.92, 1.05, 1); return g; }), skin, 0, 0.17, 0.01);
+  head.add(skull);
+  head.add(mesh(geo('nose', () => { const g = new THREE.ConeGeometry(0.018, 0.045, 6); g.rotateX(Math.PI / 2); return g; }), skin, 0, 0.16, 0.117, false));
+  for (const ex of [-0.035, 0.035]) {
+    head.add(mesh(geo('eye', () => new THREE.SphereGeometry(0.011, 8, 6)), dark, ex, 0.19, 0.098, false));
+    head.add(mesh(box(0.032, 0.008, 0.01), mat(look.hair, { rough: 0.9 }), ex, 0.207, 0.099, false));
+  }
+  if (!look.helmet && !umpire && rr(3) < 0.45) {
+    head.add(mesh(geo('beard', () => { const g = new THREE.SphereGeometry(0.1, 14, 10, 0, Math.PI * 2, Math.PI * 0.55, Math.PI * 0.45); g.scale(0.95, 1, 1.02); return g; }), mat(look.hair, { rough: 0.95 }), 0, 0.17, 0.012, false));
+  }
   if (look.helmet) {
-    const helm = new THREE.Mesh(geo('helmet', () => new THREE.SphereGeometry(0.128, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.58)), mat(look.accent, { rough: 0.35, metal: 0.1 }));
-    helm.position.set(0, 0.19, 0); helm.castShadow = true; head.add(helm);
-    head.add(mesh(box(0.2, 0.012, 0.09), mat(look.accent, { rough: 0.35 }), 0, 0.2, 0.1)); // peak
-    const grille = new THREE.Mesh(geo('grille', () => new THREE.TorusGeometry(0.12, 0.006, 4, 16, Math.PI)), mat('#9aa0a6', { metal: 0.8, rough: 0.3 }));
-    grille.position.set(0, 0.15, 0.02); grille.rotation.set(Math.PI / 2 + 0.25, 0, 0); head.add(grille);
-    const g2 = grille.clone(); g2.position.y = 0.11; g2.scale.setScalar(0.92); head.add(g2);
+    const helmMat = mat(look.accent, { rough: 0.25, metal: 0.25 });
+    const helm = new THREE.Mesh(geo('helmet', () => new THREE.SphereGeometry(0.13, 24, 14, 0, Math.PI * 2, 0, Math.PI * 0.6)), helmMat);
+    helm.position.set(0, 0.185, 0); helm.castShadow = true; head.add(helm);
+    head.add(mesh(geo('helmBack', () => { const g = new THREE.CylinderGeometry(0.115, 0.1, 0.07, 16, 1, true, Math.PI * 0.6, Math.PI * 0.8); return g; }), helmMat, 0, 0.14, -0.005));
+    head.add(mesh(geo('peak', () => { const g = new THREE.BoxGeometry(0.21, 0.012, 0.085); return g; }), helmMat, 0, 0.205, 0.115));
+    const logo = new THREE.Mesh(geo('hlogo', () => new THREE.CircleGeometry(0.025, 14)), second);
+    logo.position.set(0, 0.255, 0.105); logo.rotation.x = -0.5; head.add(logo);
+    const grilleM = mat('#b9bec4', { metal: 0.9, rough: 0.25 });
+    for (const [y, sc] of [[0.15, 1], [0.115, 0.94], [0.085, 0.86]] as const) {
+      const g = new THREE.Mesh(geo('grille', () => new THREE.TorusGeometry(0.12, 0.0055, 5, 20, Math.PI)), grilleM);
+      g.position.set(0, y, 0.02); g.rotation.set(Math.PI / 2 + 0.2, 0, 0); g.scale.setScalar(sc); head.add(g);
+    }
+    head.add(mesh(box(0.006, 0.08, 0.006), grilleM, 0, 0.115, 0.135, false));
   } else if (umpire) {
-    head.add(mesh(cyl(0.2, 0.2, 0.012, 20), mat('#f5f5f0'), 0, 0.235, 0));
+    head.add(mesh(cyl(0.2, 0.2, 0.012, 24), mat('#f5f5f0'), 0, 0.235, 0));
     head.add(mesh(cyl(0.1, 0.11, 0.09, 16), mat('#f5f5f0'), 0, 0.28, 0));
   } else {
-    // hair / cap
-    const cap = Math.random() < 0.5;
-    head.add(mesh(geo('hair', () => new THREE.SphereGeometry(0.11, 14, 8, 0, Math.PI * 2, 0, Math.PI * 0.5)), cap ? accent : mat(look.hair, { rough: 0.95 }), 0, 0.185, 0));
-    if (cap) head.add(mesh(box(0.16, 0.012, 0.1), accent, 0, 0.21, 0.1));
+    const cap = rr(1) < 0.55;
+    head.add(mesh(geo('hair', () => new THREE.SphereGeometry(0.112, 16, 8, 0, Math.PI * 2, 0, Math.PI * 0.5)), cap ? jersey : mat(look.hair, { rough: 0.95 }), 0, 0.182, 0));
+    if (cap) {
+      head.add(mesh(geo('capPeak', () => { const g = new THREE.CylinderGeometry(0.1, 0.1, 0.01, 16, 1, false, -Math.PI / 2, Math.PI); g.scale(1, 1, 0.9); return g; }), jersey, 0, 0.2, 0.05));
+      head.add(mesh(geo('capBadge', () => new THREE.CircleGeometry(0.022, 12)), second, 0, 0.25, 0.09, false));
+    }
   }
 
   const arm = (side: 1 | -1) => {
-    const sh = new THREE.Group(); sh.position.set(0.2 * side, -0.02, 0); chest.add(sh);
-    sh.add(mesh(sphere(0.06), shirt, 0, 0, 0));
-    sh.add(mesh(capsule(0.05, 0.2), umpire ? mat('#f2f2f2') : shirt, 0, -0.15, 0));
-    const el = new THREE.Group(); el.position.y = -0.3; sh.add(el);
-    el.add(mesh(capsule(0.043, 0.2), skin, 0, -0.13, 0));
-    const hand = new THREE.Group(); hand.position.y = -0.28; el.add(hand);
-    const glove = look.kind === 'keeper' ? mat('#f0f0f0', { rough: 0.7 }) : look.helmet ? mat('#ffffff', { rough: 0.8 }) : skin;
-    hand.add(mesh(look.kind === 'keeper' ? box(0.1, 0.13, 0.08) : look.helmet ? box(0.075, 0.1, 0.07) : sphere(0.045), glove, 0, -0.03, 0));
-    if (look.helmet) hand.add(mesh(box(0.077, 0.03, 0.072), accent, 0, 0.02, 0, false));
+    const sh = new THREE.Bone(); sh.position.set(0.2 * side, -0.02, 0); chest.add(sh);
+    sh.add(mesh(shoulderGeo(), shirt, 0, 0, 0));
+    sh.add(mesh(limb(0.052, 0.12), umpire ? mat('#f2f2f2') : shirt, 0, -0.1, 0)); // sleeve
+    sh.add(mesh(limb(0.045, 0.16), skin, 0, -0.18, 0));
+    const el = new THREE.Bone(); el.position.y = -0.3; sh.add(el);
+    el.add(mesh(limb(0.042, 0.19), look.helmet ? mat('#ffffff', { rough: 0.8 }) : skin, 0, -0.13, 0));
+    const hand = new THREE.Bone(); hand.position.y = -0.28; el.add(hand);
+    if (look.kind === 'keeper') { hand.add(mesh(keeperGloveGeo(), mat('#f4f1ea', { rough: 0.7 }), 0, -0.035, 0)); hand.add(mesh(box(0.11, 0.03, 0.06), accent, 0, 0.02, 0, false)); }
+    else if (look.helmet) { hand.add(mesh(gloveGeo(), mat('#fafafa', { rough: 0.75 }), 0, -0.03, 0)); hand.add(mesh(limb(0.047, 0.02), accent, 0, 0.02, 0, false)); }
+    else hand.add(mesh(sphere(0.045), skin, 0, -0.03, 0));
     return { sh, el, hand };
   };
   const L = arm(1), R = arm(-1);
 
   const leg = (side: 1 | -1) => {
-    const hip = new THREE.Group(); hip.position.set(0.1 * side, -0.04, 0); hips.add(hip);
-    hip.add(mesh(capsule(0.075, 0.28), trousers, 0, -0.22, 0));
-    const knee = new THREE.Group(); knee.position.y = -0.45; hip.add(knee);
-    knee.add(mesh(capsule(0.058, 0.3), trousers, 0, -0.21, 0));
+    const hip = new THREE.Bone(); hip.position.set(0.1 * side, -0.04, 0); hips.add(hip);
+    hip.add(mesh(limb(0.078, 0.27), trousers, 0, -0.22, 0));
+    const knee = new THREE.Bone(); knee.position.y = -0.45; hip.add(knee);
+    knee.add(mesh(limb(0.06, 0.29), trousers, 0, -0.21, 0));
     if (look.helmet || look.kind === 'keeper') {
-      const padM = mat('#fbfbfb', { rough: 0.8 });
-      knee.add(mesh(box(0.15, 0.5, 0.1), padM, 0, -0.2, 0.05));
-      knee.add(mesh(box(0.16, 0.03, 0.11), accent, 0, -0.02, 0.06, false));
+      const padM = mat('#fdfdfd', { rough: 0.7 });
+      knee.add(mesh(padGeo(), padM, 0, -0.2, 0.045));
+      knee.add(mesh(geo('kneeRoll', () => { const g = new THREE.SphereGeometry(0.07, 12, 8); g.scale(1.1, 0.75, 0.9); return g; }), padM, 0, 0.02, 0.06));
+      knee.add(mesh(box(0.15, 0.022, 0.1), accent, 0, -0.08, 0.06, false));
+      knee.add(mesh(box(0.15, 0.022, 0.1), accent, 0, -0.3, 0.06, false));
     }
-    const ank = new THREE.Group(); ank.position.y = -0.44; knee.add(ank);
-    ank.add(mesh(box(0.1, 0.07, 0.26), shoe, 0, -0.035, 0.05));
+    const ank = new THREE.Bone(); ank.position.y = -0.44; knee.add(ank);
+    ank.add(mesh(shoeGeo(), shoe, 0, -0.03, 0.05));
+    ank.add(mesh(soleGeo(), dark, 0, -0.065, 0.05));
+    ank.add(mesh(box(0.06, 0.012, 0.08), accent, side * 0.05, -0.02, 0.05, false));
     return { hip, knee, ank };
   };
   const Lg = leg(1), Rg = leg(-1);
@@ -150,12 +308,22 @@ export function buildRig(look: RigLook): Rig {
     lHip: Lg.hip, lKnee: Lg.knee, rHip: Rg.hip, rKnee: Rg.knee, lAnk: Lg.ank, rAnk: Rg.ank,
     bat: null, batMode: 'none', ball: null, pose: new Float32Array(NP), kind: look.kind,
   };
-  if (look.helmet) { rig.bat = makeBat(); setBatMode(rig, 'carry'); }
+  skinRig(root);
+  if (look.helmet) { rig.bat = makeBat(); mergeStatic(rig.bat); setBatMode(rig, 'carry'); }
   const ball = mesh(sphere(0.04), mat('#d8d8d8'), 0, -0.07, 0.03, false);
-  ball.visible = false;
+  ball.visible = false; ball.userData.noMerge = true;
   R.hand.add(ball);
   rig.ball = ball;
   return rig;
+}
+
+/** free per-rig merged geometries and textures */
+export function disposeRig(rig: Rig) {
+  rig.mirror.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh && m.userData.ownGeo) m.geometry.dispose();
+  });
+  (rig.root.userData.backTex as THREE.Texture | undefined)?.dispose();
 }
 
 function setBatMode(rig: Rig, mode: Rig['batMode']) {
@@ -177,7 +345,7 @@ const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _qi = new THRE
 const DOWN = new THREE.Vector3(0, -1, 0);
 const UPPER = 0.3, LOWER = 0.31;
 
-function solveArm(sh: THREE.Group, el: THREE.Group, target: THREE.Vector3, pole: THREE.Vector3) {
+function solveArm(sh: THREE.Object3D, el: THREE.Object3D, target: THREE.Vector3, pole: THREE.Vector3) {
   const S = sh.position;
   const toT = _v1.copy(target).sub(S);
   let d = toT.length();

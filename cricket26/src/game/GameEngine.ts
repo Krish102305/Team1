@@ -513,7 +513,18 @@ export class GameEngine {
       if (a === 'batDefend') this.cancelRun();
       return;
     }
-    if (this.phase !== 'delivery' || this.d.shot || !this.d.plan) return;
+    if (this.phase !== 'delivery' || !this.d.plan) return;
+    // late modifier: L / Space pressed just after a direction key upgrades the shot (same timing)
+    if (this.d.shot) {
+      const sh = this.d.shot;
+      const now = this.t - this.d.releaseT;
+      if (!this.d.contactDone && sh.input.kind === 'ground' && now - sh.input.pressTime < 0.16 && (a === 'batLoft' || a === 'batPower')) {
+        const inp = { ...sh.input };
+        if (a === 'batLoft') inp.kind = 'loft'; else inp.power = true;
+        this.playShot(inp, true);
+      }
+      return;
+    }
     const dirKeys: InputAction[] = ['batStraight', 'batLeft', 'batRight', 'batFineLeft', 'batFineRight'];
     const isDir = dirKeys.includes(a);
     const kindOf: Partial<Record<InputAction, ShotInput['kind']>> = { batLoft: 'loft', batDefend: 'defend', batLeave: 'leave', batPower: 'ground' };

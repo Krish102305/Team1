@@ -1,9 +1,10 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { StadiumDef, boundaryRadius } from '../../data/stadiums';
 import type { TimeOfDay } from '../../game/types';
 import { CREASE_Z, STUMPS_Z, STUMP_H } from '../../game/constants';
 import { mulberry32 } from '../../utils/random';
+import { mergeStatic } from './PlayerRig';
 
 export type Quality = 'low' | 'medium' | 'high';
 
@@ -13,6 +14,7 @@ export interface StadiumHandles {
   stumps: { striker: THREE.Group; other: THREE.Group; strikerBails: THREE.Mesh[]; otherBails: THREE.Mesh[] };
   crowdMat: THREE.Material & { userData: { shader?: { uniforms: Record<string, { value: number }> } } };
   updateScoreboard: (lines: string[]) => void;
+  tick: (dt: number, excite: number) => void;
   dispose: () => void;
 }
 
@@ -38,7 +40,7 @@ function noise(ctx: CanvasRenderingContext2D, w: number, h: number, amount: numb
   ctx.putImageData(img, 0, 0);
 }
 
-export function buildStadium(def: StadiumDef, time: TimeOfDay, quality: Quality): StadiumHandles {
+export function buildStadium(def: StadiumDef, time: TimeOfDay, quality: Quality, teamColors: string[] = []): StadiumHandles {
   const group = new THREE.Group();
   const env = new THREE.Group();
   group.add(env);
@@ -51,19 +53,45 @@ export function buildStadium(def: StadiumDef, time: TimeOfDay, quality: Quality)
   // ------------------------------------------------ ground
   const maxR = Math.max(def.boundary.rx, def.boundary.rz) * (1 + def.boundary.wobble * 1.5);
   const outer = maxR + 16;
-  const grassTex = track(canvasTex(1024, 1024, (c) => {
-    const stripes = 22;
+  const GS = quality === 'high' ? 2048 : 1024;
+  const grassTex = track(canvasTex(GS, GS, (c) => {
+    const stripes = 26;
+    const w = GS / stripes;
+    // soft-edged mowing stripes (light/dark from the mower direction)
     for (let i = 0; i < stripes; i++) {
-      c.fillStyle = i % 2 === 0 ? def.grass[0] : def.grass[1];
-      c.fillRect((i * 1024) / stripes, 0, 1024 / stripes + 1, 1024);
+      const g = c.createLinearGradient(i * w, 0, (i + 1) * w, 0);
+      const a = i % 2 === 0 ? def.grass[0] : def.grass[1];
+      const b = i % 2 === 0 ? def.grass[1] : def.grass[0];
+      g.addColorStop(0, a); g.addColorStop(0.08, a); g.addColorStop(0.92, a); g.addColorStop(1, b);
+      c.fillStyle = g; c.fillRect(i * w, 0, w + 1, GS);
     }
-    // cross mow pattern
-    c.globalAlpha = 0.07;
-    for (let i = 0; i < stripes; i++) { if (i % 2) { c.fillStyle = '#000'; c.fillRect(0, (i * 1024) / stripes, 1024, 1024 / stripes); } }
+    // cross-cut pattern
+    c.globalAlpha = 0.06;
+    for (let i = 0; i < stripes; i++) if (i % 2) { c.fillStyle = '#000'; c.fillRect(0, i * w, GS, w); }
+    // large-scale colour variation (patchy turf)
+    const r = mulberry32(11);
+    for (let i = 0; i < 90; i++) {
+      const x = r() * GS, y = r() * GS, rad = GS * (0.03 + r() * 0.09);
+      const gr = c.createRadialGradient(x, y, 0, x, y, rad);
+      const tone = r() < 0.5 ? '255,255,200' : '0,40,0';
+      gr.addColorStop(0, `rgba(${tone},0.10)`); gr.addColorStop(1, `rgba(${tone},0)`);
+      c.globalAlpha = 1; c.fillStyle = gr; c.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+    }
     c.globalAlpha = 1;
-    noise(c, 1024, 1024, 14, 7);
+    noise(c, GS, GS, 12, 7);
   }));
-  const ground = new THREE.Mesh(new THREE.CircleGeometry(outer, 96), new THREE.MeshStandardMaterial({ map: grassTex, roughness: 0.95 }));
+  // tiled micro-detail used as a bump + roughness map so the turf catches the light
+  const detail = track(canvasTex(256, 256, (c) => {
+    c.fillStyle = '#808080'; c.fillRect(0, 0, 256, 256);
+    const r = mulberry32(21);
+    for (let i = 0; i < 5000; i++) {
+      const v = Math.floor(90 + r() * 120);
+      c.fillStyle = `rgb(${v},${v},${v})`;
+      c.fillRect(r() * 256, r() * 256, 1, 2 + r() * 4);
+    }
+  }, [160, 160]));
+  detail.colorSpace = THREE.NoColorSpace;
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(outer, 128), new THREE.MeshStandardMaterial(quality === 'low' ? { map: grassTex, roughness: 0.95 } : { map: grassTex, roughness: 1, roughnessMap: detail, bumpMap: detail, bumpScale: 0.9, envMapIntensity: 0.25 }));
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   track(ground.geometry); track(ground.material as THREE.Material);
@@ -208,14 +236,14 @@ export function buildStadium(def: StadiumDef, time: TimeOfDay, quality: Quality)
     const r0 = R(a0) + 3.2, r1 = R(a1) + 3.2;
     const p0 = new THREE.Vector3(Math.sin(a0) * r0, 0, Math.cos(a0) * r0), p1 = new THREE.Vector3(Math.sin(a1) * r1, 0, Math.cos(a1) * r1);
     const len = p0.distanceTo(p1);
-    const b = new THREE.Mesh(track(new THREE.BoxGeometry(len, 0.9, 0.15)), [backMat, backMat, backMat, backMat, backMat, boardMats[i % boardMats.length]]);
-    // face 5 (-z) is the inner face after orientation below
+    const b = new THREE.Mesh(track(new THREE.BoxGeometry(len, 0.9, 0.15)), backMat);
     b.position.copy(p0).add(p1).multiplyScalar(0.5); b.position.y = 0.45;
     b.lookAt(0, 0.45, 0);
-    b.rotateY(Math.PI);
-    b.material = [backMat, backMat, backMat, backMat, backMat, boardMats[i % boardMats.length]];
     b.castShadow = quality !== 'low';
-    env.add(b);
+    const face = new THREE.Mesh(track(new THREE.PlaneGeometry(len, 0.86)), boardMats[i % boardMats.length]);
+    face.position.copy(b.position).multiplyScalar(0.9985); face.position.y = 0.45;
+    face.lookAt(0, 0.45, 0);
+    env.add(b, face);
   }
 
   // ------------------------------------------------ sightscreens
@@ -232,6 +260,7 @@ export function buildStadium(def: StadiumDef, time: TimeOfDay, quality: Quality)
   // ------------------------------------------------ stands
   const seatCols = def.seatColors.map((c) => new THREE.Color(c));
   const standCol = new THREE.Color(def.standColor);
+  const riserCol = standCol.clone().multiplyScalar(0.45);
   const N = 160;
   const standGap = def.standGap;
   const inGap = (a: number) => {
@@ -266,8 +295,13 @@ export function buildStadium(def: StadiumDef, time: TimeOfDay, quality: Quality)
         // tread
         addQuad(P3(a0, rOff, h), P3(a1, rOff, h), P3(a1, rOff + rowDepth, h), P3(a0, rOff + rowDepth, h), seat);
         // riser
-        addQuad(P3(a0, rOff + rowDepth, h), P3(a1, rOff + rowDepth, h), P3(a1, rOff + rowDepth, h + rowRise), P3(a0, rOff + rowDepth, h + rowRise), standCol);
-        if (!aisle) crowdSpots.push({ x: 0, y: h, z: rOff + rowDepth * 0.45, a: am });
+        addQuad(P3(a0, rOff + rowDepth, h), P3(a1, rOff + rowDepth, h), P3(a1, rOff + rowDepth, h + rowRise), P3(a0, rOff + rowDepth, h + rowRise), riserCol);
+        if (!aisle) {
+          // one seat every ~0.6 m along the row
+          const segLen = (R(am) + rOff) * (a1 - a0);
+          const seats = Math.max(1, Math.floor(segLen / 0.62));
+          for (let k = 0; k < seats; k++) crowdSpots.push({ x: 0, y: h, z: rOff + rowDepth * 0.45, a: a0 + ((k + 0.5) / seats) * (a1 - a0) });
+        }
       }
       // front wall
       addQuad(P3(a0, tierBaseR, tierBaseH - (t === 0 ? 1.2 : 1.6)), P3(a1, tierBaseR, tierBaseH - (t === 0 ? 1.2 : 1.6)), P3(a1, tierBaseR, tierBaseH), P3(a0, tierBaseR, tierBaseH), standCol.clone().multiplyScalar(0.7));
@@ -291,22 +325,41 @@ export function buildStadium(def: StadiumDef, time: TimeOfDay, quality: Quality)
   env.add(stands);
 
   // ------------------------------------------------ crowd (instanced, shader-animated)
-  const crowdCount = Math.floor((quality === 'low' ? 3500 : quality === 'medium' ? 8000 : 14000) * def.crowdDensity);
-  const body = new THREE.BoxGeometry(0.42, 0.55, 0.3); body.translate(0, 0.42, 0);
-  const headG = new THREE.SphereGeometry(0.12, 6, 5); headG.translate(0, 0.83, 0);
-  const personGeo = mergeGeometries([body.toNonIndexed(), headG.toNonIndexed()])!;
-  body.dispose(); headG.dispose();
+  const crowdCount = Math.floor((quality === 'low' ? 6000 : quality === 'medium' ? 15000 : 26000) * def.crowdDensity);
+  // low-poly indexed figure (~84 vertices): torso, head, two arms
+  const body = new THREE.BoxGeometry(0.4, 0.56, 0.26); body.translate(0, 0.42, 0);
+  const headG = mergeVertices(new THREE.IcosahedronGeometry(0.115, 0)); headG.deleteAttribute('uv'); headG.translate(0, 0.84, 0);
+  const armL = new THREE.BoxGeometry(0.09, 0.42, 0.09); armL.translate(0.25, 0.45, 0.02);
+  const armR = new THREE.BoxGeometry(0.09, 0.42, 0.09); armR.translate(-0.25, 0.45, 0.02);
+  const parts = [body, headG, armL, armR];
+  for (const g of [body, armL, armR]) g.deleteAttribute('uv');
+  const flag = (g: THREE.BufferGeometry, name: string, v: number) => { const n = g.attributes.position.count; g.setAttribute(name, new THREE.Float32BufferAttribute(new Float32Array(n).fill(v), 1)); };
+  flag(parts[0], 'aArm', 0); flag(parts[1], 'aArm', 0); flag(parts[2], 'aArm', 1); flag(parts[3], 'aArm', -1);
+  flag(parts[0], 'aSkin', 0); flag(parts[1], 'aSkin', 1); flag(parts[2], 'aSkin', 0.6); flag(parts[3], 'aSkin', 0.6);
+  const personGeo = mergeGeometries(parts)!;
+  parts.forEach((g) => g.dispose());
   const phase = new Float32Array(crowdCount);
   const crowdMat = new THREE.MeshLambertMaterial({ color: '#ffffff' }) as unknown as StadiumHandles['crowdMat'];
   crowdMat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = { value: 0 };
     shader.uniforms.uExcite = { value: 0 };
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aPhase;\nuniform float uTime;\nuniform float uExcite;')
+      .replace('#include <common>', '#include <common>\nattribute float aPhase;\nattribute float aArm;\nattribute float aSkin;\nvarying float vSkin;\nuniform float uTime;\nuniform float uExcite;')
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         float bob = max(0.0, sin(uTime * (5.0 + aPhase * 3.0) + aPhase * 40.0));
-        transformed.y += bob * (0.04 + uExcite * 0.45);
-        transformed.x *= 1.0 + uExcite * 0.15 * bob;`);
+        vSkin = aSkin;
+        if (aArm != 0.0) {
+          // raise arms around the shoulder when the crowd gets excited (some fans always clap)
+          float lift = clamp(uExcite * 1.6 + step(0.82, aPhase) * 0.6, 0.0, 1.0) * (2.4 + 0.4 * bob);
+          float ang = aArm * lift;
+          vec2 p = transformed.xy - vec2(aArm * 0.25, 0.64);
+          float cs = cos(ang), sn = sin(ang);
+          transformed.xy = vec2(p.x * cs - p.y * sn, p.x * sn + p.y * cs) + vec2(aArm * 0.25, 0.64);
+        }
+        transformed.y += bob * (0.03 + uExcite * 0.4);`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vSkin;')
+      .replace('#include <color_fragment>', '#include <color_fragment>\n diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.45, 0.33), vSkin * 0.85);');
     crowdMat.userData.shader = shader as unknown as { uniforms: Record<string, { value: number }> };
   };
   const crowd = new THREE.InstancedMesh(personGeo, crowdMat, crowdCount);
@@ -317,12 +370,12 @@ export function buildStadium(def: StadiumDef, time: TimeOfDay, quality: Quality)
   for (let i = 0; i < crowdSpots.length && ci < crowdCount; i++) {
     if (rnd() > occupancy) continue;
     const s = crowdSpots[i];
-    const jitter = (rnd() - 0.5) * (Math.PI * 2 / N) * 0.9;
+    const jitter = (rnd() - 0.5) * 0.004;
     const a = s.a + jitter;
     const r = R(a) + s.z;
     pos.set(Math.sin(a) * r, s.y, Math.cos(a) * r);
     const face = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), a + Math.PI);
-    const sz = 0.9 + rnd() * 0.25;
+    const sz = 0.95 + rnd() * 0.2;
     m4.compose(pos, face, new THREE.Vector3(sz, sz, sz));
     crowd.setMatrixAt(ci, m4);
     col.set(shirt[Math.floor(rnd() * shirt.length)]).multiplyScalar(0.75 + rnd() * 0.35);
@@ -331,6 +384,41 @@ export function buildStadium(def: StadiumDef, time: TimeOfDay, quality: Quality)
     ci++;
   }
   crowd.count = ci;
+
+  // waving flags in the two teams' colours
+  const flagMats: THREE.Material[] = [];
+  if (teamColors.length && quality !== 'low') {
+    const nFlags = quality === 'high' ? 90 : 50;
+    const flagGeo = new THREE.PlaneGeometry(1.1, 0.7, 8, 1); flagGeo.translate(0.55, 1.75, 0);
+    const flagMat = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide });
+    flagMats.push(flagMat);
+    flagMat.onBeforeCompile = (sh) => {
+      sh.uniforms.uTime = { value: 0 };
+      flagMat.userData.shader = sh;
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uTime;')
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+          float k = max(0.0, transformed.x);
+          transformed.z += sin(uTime * 6.0 + transformed.x * 5.0 + float(gl_InstanceID)) * 0.18 * k;
+          transformed.y += sin(uTime * 3.0 + float(gl_InstanceID)) * 0.05;`);
+    };
+    const flags = new THREE.InstancedMesh(flagGeo, flagMat, nFlags);
+    const poleGeo = new THREE.CylinderGeometry(0.015, 0.015, 1.8, 4); poleGeo.translate(0, 1.0, 0);
+    const poles = new THREE.InstancedMesh(poleGeo, new THREE.MeshBasicMaterial({ color: '#dddddd' }), nFlags);
+    const fc = new THREE.Color();
+    for (let i = 0; i < nFlags; i++) {
+      const sp = crowdSpots[Math.floor(rnd() * crowdSpots.length)];
+      if (!sp) break;
+      const r = R(sp.a) + sp.z;
+      pos.set(Math.sin(sp.a) * r, sp.y, Math.cos(sp.a) * r);
+      const face = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), sp.a + Math.PI / 2);
+      m4.compose(pos, face, new THREE.Vector3(1, 1, 1));
+      flags.setMatrixAt(i, m4); poles.setMatrixAt(i, m4);
+      fc.set(teamColors[i % teamColors.length]); flags.setColorAt(i, fc);
+    }
+    flags.frustumCulled = false; poles.frustumCulled = false;
+    track(flagGeo); track(flagMat); track(poleGeo); track(poles.material as THREE.Material);
+    env.add(flags, poles);
+  }
   personGeo.setAttribute('aPhase', new THREE.InstancedBufferAttribute(phase, 1));
   crowd.frustumCulled = false;
   track(personGeo); track(crowdMat);
@@ -439,6 +527,7 @@ export function buildStadium(def: StadiumDef, time: TimeOfDay, quality: Quality)
     sbTex.needsUpdate = true;
   };
   updateScoreboard(['CRICKET 26', 'Quick Play']);
+  let clock = 0;
 
   // ------------------------------------------------ pavilion / dressing rooms
   const pavA = -Math.PI * 0.38;
@@ -496,11 +585,21 @@ export function buildStadium(def: StadiumDef, time: TimeOfDay, quality: Quality)
   if (def.water) far.scale.setScalar(0.25);
   group.add(far);
 
+  // merge static dressing that shares materials (boards, columns, trees, flags…) to cut draw calls
+  mergeStatic(env, false);
+  mergeStatic(group, false);
+
   return {
     group, env,
     stumps: { striker: sStr.g, other: sOth.g, strikerBails: sStr.bails, otherBails: sOth.bails },
     crowdMat,
     updateScoreboard,
+    tick: (dt, excite) => {
+      clock += dt;
+      const u = crowdMat.userData.shader?.uniforms;
+      if (u) { u.uTime.value = clock; u.uExcite.value = excite; }
+      for (const fm of flagMats) { const fu = (fm.userData.shader as { uniforms: Record<string, { value: number }> } | undefined)?.uniforms; if (fu) fu.uTime.value = clock; }
+    },
     dispose: () => { disposables.forEach((d) => d.dispose()); },
   };
 }
@@ -516,6 +615,26 @@ export function buildSky(top: string, bottom: string, night: boolean): THREE.Gro
   });
   const sky = new THREE.Mesh(new THREE.SphereGeometry(800, 32, 16), mat);
   g.add(sky);
+  if (!night) {
+    const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 256;
+    const c = cv.getContext('2d')!;
+    const r = mulberry32(77);
+    for (let i = 0; i < 70; i++) {
+      const x = r() * 1024, y = 60 + r() * 140, rad = 20 + r() * 60;
+      for (let k = 0; k < 6; k++) {
+        const cx = x + (r() - 0.5) * rad * 2, cy = y + (r() - 0.5) * rad * 0.5, cr = rad * (0.5 + r() * 0.6);
+        const gr = c.createRadialGradient(cx, cy, 0, cx, cy, cr);
+        gr.addColorStop(0, 'rgba(255,255,255,0.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+        c.fillStyle = gr; c.fillRect(cx - cr, cy - cr, cr * 2, cr * 2);
+      }
+    }
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.wrapS = THREE.RepeatWrapping;
+    const clouds = new THREE.Mesh(new THREE.CylinderGeometry(760, 760, 260, 48, 1, true),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.BackSide, depthWrite: false, fog: false, color: bottom }));
+    clouds.position.y = 170;
+    clouds.userData.spin = true;
+    g.add(clouds);
+  }
   if (night) {
     const r = mulberry32(5);
     const pts: number[] = [];
