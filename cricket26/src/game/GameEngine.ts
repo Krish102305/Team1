@@ -1174,6 +1174,15 @@ export class GameEngine {
     }
     const dist = Math.hypot(a.x, a.z - best * STUMPS_Z);
     const rec = this.receiverFor(best);
+    if (rec === this.holder) {
+      // keeper/bowler holding the ball: sprint to the stumps and break them
+      const tz = best * (STUMPS_Z + 0.6);
+      const dx = 0 - a.x, dz = tz - a.z, dl = Math.hypot(dx, dz) || 1;
+      const sp = Math.min(dl, f.stats.speed * SIM_STEP);
+      a.x += (dx / dl) * sp; a.z += (dz / dl) * sp; a.rotY = Math.atan2(dx, dz); a.moveSpeed = f.stats.speed;
+      this.setAnim(a, 'run');
+      return;
+    }
     const recA = rec >= 0 ? this.actors[this.fielders[rec].a] : null;
     const recReady = recA ? Math.hypot(recA.x, recA.z - best * (STUMPS_Z + RECEIVER_OFFSET)) < 3 : false;
     const direct = bestMargin > -0.4 && bestMargin < 0.6 && dist < 32 && (chance(0.45) || !recReady);
