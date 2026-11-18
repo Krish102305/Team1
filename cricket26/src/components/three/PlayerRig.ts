@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { applyBatting } from './BattingAnim';
 import type { Actor } from '../../game/GameEngine';
-import type { AnimFamily } from '../../data/shots';
-import { SWING_LEAD } from '../../game/constants';
 
 // ---------------------------------------------------------------- shared resources
 const geoCache = new Map<string, THREE.BufferGeometry>();
@@ -339,124 +338,6 @@ function setBatMode(rig: Rig, mode: Rig['batMode']) {
   }
 }
 
-// ---------------------------------------------------------------- IK helpers
-const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _v4 = new THREE.Vector3();
-const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _qi = new THREE.Quaternion();
-const DOWN = new THREE.Vector3(0, -1, 0);
-const UPPER = 0.3, LOWER = 0.31;
-
-function solveArm(sh: THREE.Object3D, el: THREE.Object3D, target: THREE.Vector3, pole: THREE.Vector3) {
-  const S = sh.position;
-  const toT = _v1.copy(target).sub(S);
-  let d = toT.length();
-  d = Math.min(Math.max(d, 0.08), UPPER + LOWER - 0.002);
-  const dir = toT.normalize();
-  const cosA = (UPPER * UPPER + d * d - LOWER * LOWER) / (2 * UPPER * d);
-  const sinA = Math.sqrt(Math.max(0, 1 - cosA * cosA));
-  const perp = _v2.copy(pole).addScaledVector(dir, -pole.dot(dir)).normalize();
-  const E = _v3.copy(S).addScaledVector(dir, UPPER * cosA).addScaledVector(perp, UPPER * sinA);
-  const u1 = _v4.copy(E).sub(S).normalize();
-  _q1.setFromUnitVectors(DOWN, u1);
-  sh.quaternion.copy(_q1);
-  const T = _v2.copy(S).addScaledVector(dir, d);
-  const u2 = T.sub(E).normalize();
-  _q2.setFromUnitVectors(DOWN, u2);
-  _qi.copy(_q1).invert();
-  el.quaternion.copy(_qi.multiply(_q2));
-}
-
-const _m = new THREE.Matrix4(), _x = new THREE.Vector3(), _y = new THREE.Vector3(), _z = new THREE.Vector3();
-function orientBat(bat: THREE.Group, H: THREE.Vector3, D: THREE.Vector3, F: THREE.Vector3) {
-  _y.copy(D).normalize().negate();
-  _z.copy(F).addScaledVector(_y, -F.dot(_y)).normalize();
-  _x.crossVectors(_y, _z).normalize();
-  _m.makeBasis(_x, _y, _z);
-  bat.quaternion.setFromRotationMatrix(_m);
-  bat.position.copy(H);
-}
-
-// ---------------------------------------------------------------- batting keyframes (chest-local, right-hander)
-type V = [number, number, number];
-interface BatKey { H: V; D: V; F: V; twist: number; lean: number; kneel: number; stride: number }
-const STANCE: BatKey = { H: [0.02, -0.34, 0.27], D: [-0.25, -1, 0.06], F: [1, 0, 0.25], twist: 0, lean: 0.35, kneel: 0, stride: 0 };
-const BACKLIFT: BatKey = { H: [-0.12, 0.02, 0.22], D: [-0.55, 0.7, -0.15], F: [0.3, 0.2, 1], twist: -0.2, lean: 0.3, kneel: 0, stride: 0.1 };
-const FAM: Record<AnimFamily, { contact: BatKey; finish: BatKey; back?: BatKey }> = {
-  drive: {
-    contact: { H: [0.24, -0.3, 0.32], D: [0.25, -1, 0.05], F: [1, 0, 0.3], twist: 0.25, lean: 0.55, kneel: 0, stride: 1 },
-    finish: { H: [0.18, 0.32, 0.18], D: [-0.45, 0.8, -0.3], F: [0, 1, 0.3], twist: 0.5, lean: 0.35, kneel: 0, stride: 1 },
-  },
-  loft: {
-    contact: { H: [0.22, -0.22, 0.32], D: [0.4, -0.95, 0.05], F: [1, 0.3, 0.3], twist: 0.3, lean: 0.4, kneel: 0, stride: 1 },
-    finish: { H: [0.05, 0.48, 0.02], D: [-0.6, 0.55, -0.55], F: [0, 1, 0], twist: 0.7, lean: 0.1, kneel: 0, stride: 1 },
-  },
-  slog: {
-    contact: { H: [0.15, -0.12, 0.32], D: [0.6, -0.65, -0.45], F: [1, 0.2, -0.4], twist: 0.6, lean: 0.25, kneel: 0, stride: 0.8 },
-    finish: { H: [0.15, 0.4, -0.12], D: [-0.5, 0.45, -0.75], F: [0, 1, 0], twist: 1.0, lean: 0.1, kneel: 0, stride: 0.8 },
-  },
-  cut: {
-    back: { H: [-0.05, 0.25, 0.3], D: [-0.3, 0.9, 0.3], F: [0, 0, 1], twist: -0.1, lean: 0.25, kneel: 0, stride: -0.6 },
-    contact: { H: [0.06, -0.05, 0.45], D: [0.25, -0.25, 1], F: [0.3, -1, 0], twist: -0.35, lean: 0.35, kneel: 0, stride: -0.6 },
-    finish: { H: [-0.12, 0.12, 0.38], D: [-0.65, 0.1, 0.75], F: [0, -1, 0], twist: -0.6, lean: 0.3, kneel: 0, stride: -0.6 },
-  },
-  pull: {
-    back: { H: [-0.1, 0.2, 0.25], D: [-0.5, 0.75, 0.3], F: [0, 0, 1], twist: -0.1, lean: 0.2, kneel: 0, stride: -0.6 },
-    contact: { H: [0.18, 0.02, 0.3], D: [0.35, -0.1, -1], F: [1, 0, 0], twist: 0.6, lean: 0.2, kneel: 0, stride: -0.6 },
-    finish: { H: [0.0, 0.28, -0.22], D: [-0.6, 0.4, -0.7], F: [0, 1, 0], twist: 1.0, lean: 0.15, kneel: 0, stride: -0.6 },
-  },
-  sweep: {
-    contact: { H: [0.28, -0.42, 0.22], D: [0.35, -0.45, -0.85], F: [1, -0.3, 0], twist: 0.5, lean: 0.75, kneel: 1, stride: 1 },
-    finish: { H: [0.05, -0.2, -0.22], D: [-0.4, 0.1, -0.9], F: [0, 1, 0], twist: 0.9, lean: 0.6, kneel: 1, stride: 1 },
-  },
-  reverse: {
-    contact: { H: [0.28, -0.42, 0.18], D: [0.35, -0.45, 0.85], F: [1, 0, 0], twist: -0.3, lean: 0.75, kneel: 1, stride: 1 },
-    finish: { H: [0.05, -0.2, 0.3], D: [-0.3, 0.1, 0.95], F: [0, 1, 0], twist: -0.6, lean: 0.6, kneel: 1, stride: 1 },
-  },
-  glance: {
-    contact: { H: [0.24, -0.3, 0.24], D: [0.15, -1, -0.3], F: [0.4, 0, -1], twist: 0.3, lean: 0.4, kneel: 0, stride: 0.5 },
-    finish: { H: [0.12, -0.05, 0.05], D: [-0.25, -0.55, -0.8], F: [0, 0, -1], twist: 0.6, lean: 0.35, kneel: 0, stride: 0.5 },
-  },
-  defend: {
-    contact: { H: [0.3, -0.32, 0.3], D: [0.18, -1, 0.02], F: [1, 0, 0.1], twist: 0.15, lean: 0.6, kneel: 0, stride: 1 },
-    finish: { H: [0.3, -0.3, 0.3], D: [0.15, -1, 0.02], F: [1, 0, 0.1], twist: 0.15, lean: 0.6, kneel: 0, stride: 1 },
-  },
-  defendBack: {
-    contact: { H: [0.12, -0.14, 0.32], D: [0.05, -1, 0], F: [1, 0, 0], twist: 0.05, lean: 0.25, kneel: 0, stride: -0.6 },
-    finish: { H: [0.12, -0.14, 0.32], D: [0.05, -1, 0], F: [1, 0, 0], twist: 0.05, lean: 0.25, kneel: 0, stride: -0.6 },
-  },
-  scoop: {
-    contact: { H: [0.26, -0.36, 0.3], D: [0.9, -0.4, 0.1], F: [0, 1, 0], twist: 0.1, lean: 0.7, kneel: 0.7, stride: 1 },
-    finish: { H: [0.2, -0.1, 0.25], D: [0.55, 0.55, 0], F: [-1, 0.5, 0], twist: 0.1, lean: 0.5, kneel: 0.7, stride: 1 },
-  },
-  leave: {
-    contact: { H: [-0.05, 0.38, 0.12], D: [-0.25, 0.95, 0.15], F: [0, 0, 1], twist: -0.2, lean: 0.15, kneel: 0, stride: 0.4 },
-    finish: { H: [-0.05, 0.38, 0.12], D: [-0.25, 0.95, 0.15], F: [0, 0, 1], twist: -0.2, lean: 0.15, kneel: 0, stride: 0.4 },
-  },
-};
-
-const SWING_TOTAL = 0.75;
-const _H = new THREE.Vector3(), _D = new THREE.Vector3(), _F = new THREE.Vector3(), _H2 = new THREE.Vector3(), _D2 = new THREE.Vector3(), _F2 = new THREE.Vector3();
-const ease = (t: number) => t * t * (3 - 2 * t);
-
-function lerpKey(a: BatKey, b: BatKey, t: number, out: BatKey) {
-  const e = ease(Math.min(1, Math.max(0, t)));
-  for (let i = 0; i < 3; i++) { out.H[i] = a.H[i] + (b.H[i] - a.H[i]) * e; out.D[i] = a.D[i] + (b.D[i] - a.D[i]) * e; out.F[i] = a.F[i] + (b.F[i] - a.F[i]) * e; }
-  out.twist = a.twist + (b.twist - a.twist) * e; out.lean = a.lean + (b.lean - a.lean) * e;
-  out.kneel = a.kneel + (b.kneel - a.kneel) * e; out.stride = a.stride + (b.stride - a.stride) * e;
-}
-const _k: BatKey = { H: [0, 0, 0], D: [0, 0, 0], F: [0, 0, 0], twist: 0, lean: 0, kneel: 0, stride: 0 };
-
-function batKey(anim: string, fam: string, t: number): BatKey {
-  if (anim !== 'swing') return STANCE;
-  const f = FAM[(fam as AnimFamily)] ?? FAM.drive;
-  const back = f.back ?? BACKLIFT;
-  const tc = SWING_LEAD;
-  if (t < tc * 0.45) lerpKey(STANCE, back, t / (tc * 0.45), _k);
-  else if (t < tc) lerpKey(back, f.contact, (t - tc * 0.45) / (tc * 0.55), _k);
-  else if (t < SWING_TOTAL) lerpKey(f.contact, f.finish, (t - tc) / (SWING_TOTAL - tc), _k);
-  else lerpKey(f.finish, STANCE, Math.min(1, (t - SWING_TOTAL - 0.4) / 0.5), _k);
-  return _k;
-}
-
 // ---------------------------------------------------------------- pose generation
 const target = new Float32Array(NP);
 
@@ -568,17 +449,9 @@ function generatePose(a: Pick<Actor, 'anim' | 'animT' | 'animP' | 'animSide' | '
     case 'signalNoBall': target[P.rShZ] = -1.55; target[P.rEl] = 0; target[P.lShX] = -0.3; target[P.lEl] = -1.2; break;
     case 'batRaise': target[P.rShX] = -2.8; target[P.rEl] = -0.2; target[P.lShZ] = 0.9; target[P.spineX] = -0.1; break;
     case 'dejected': target[P.headX] = 0.55; target[P.spineX] = 0.2; target[P.rShX] = 0.1; target[P.lShX] = 0.1; break;
-    case 'stance': case 'swing': {
-      // lower body for batters; arms by IK
-      const k = batKey(a.anim, a.animP, t);
-      target[P.hipsY] = -0.08 - k.kneel * 0.42;
-      target[P.lHipX] = -0.25 - Math.max(0, k.stride) * 0.15 - k.kneel * 1.0; target[P.rHipX] = -0.25 + k.kneel * 0.6;
-      target[P.lKnee] = 0.42 + Math.max(0, k.stride) * 0.35 + k.kneel * 0.9; target[P.rKnee] = 0.42 + k.kneel * 1.7;
-      target[P.lHipZ] = 0.22 + Math.max(0, k.stride) * 0.32; target[P.rHipZ] = -0.2 + Math.min(0, k.stride) * 0.25;
-      target[P.spineX] = k.lean; target[P.spineY] = k.twist; target[P.hipsY_rot] = k.twist * 0.4;
-      target[P.headY] = 1.25 - k.twist * 0.8; target[P.headX] = 0.15;
+    case 'stance': case 'swing':
+      target[P.hipsY] = -0.08; target[P.lKnee] = 0.4; target[P.rKnee] = 0.4; target[P.lHipX] = -0.25; target[P.rHipX] = -0.25; target[P.spineX] = 0.3;
       break;
-    }
     default: break;
   }
 }
@@ -608,30 +481,15 @@ export function applyActor(rig: Rig, a: Pick<Actor, 'x' | 'y' | 'z' | 'rotY' | '
   rig.rKnee.rotation.set(pose[P.rKnee], 0, 0);
   rig.lAnk.rotation.set(pose[P.lAnk] - pose[P.lKnee] * 0.3 - pose[P.lHipX] * 0.2, 0, 0);
   rig.rAnk.rotation.set(pose[P.rAnk] - pose[P.rKnee] * 0.3 - pose[P.rHipX] * 0.2, 0, 0);
-  const batting = (a.anim === 'stance' || a.anim === 'swing') && rig.bat;
-  if (batting) {
-    setBatMode(rig, 'hands');
-    const key = batKey(a.anim, a.animP, a.animT);
-    _H.set(key.H[0], key.H[1], key.H[2]); _D.set(key.D[0], key.D[1], key.D[2]).normalize(); _F.set(key.F[0], key.F[1], key.F[2]);
-    // smooth bat motion
-    const ud = rig.bat!.userData as { H?: THREE.Vector3; D?: THREE.Vector3; F?: THREE.Vector3 };
-    if (!ud.H) { ud.H = _H.clone(); ud.D = _D.clone(); ud.F = _F.clone(); }
-    const kb = 1 - Math.exp(-(a.anim === 'swing' ? 60 : 12) * dt);
-    ud.H.lerp(_H, kb); ud.D!.lerp(_D, kb).normalize(); ud.F!.lerp(_F, kb);
-    orientBat(rig.bat!, ud.H, ud.D!, ud.F!);
-    _H2.copy(ud.H).addScaledVector(ud.D!, 0.05);
-    _D2.copy(ud.H).addScaledVector(ud.D!, 0.17);
-    solveArm(rig.lSh, rig.lEl, _H2, _F2.set(0.6, -0.4, -0.6));
-    solveArm(rig.rSh, rig.rEl, _D2, _F2.set(-0.7, -0.5, -0.2));
-  } else {
-    if (rig.bat) {
-      setBatMode(rig, 'carry');
-      (rig.bat.userData as { H?: THREE.Vector3 }).H = undefined;
-    }
-    rig.lSh.rotation.set(pose[P.lShX], pose[P.lShY], pose[P.lShZ]);
-    rig.rSh.rotation.set(pose[P.rShX], pose[P.rShY], pose[P.rShZ]);
-    rig.lEl.rotation.set(pose[P.lEl], 0, 0);
-    rig.rEl.rotation.set(pose[P.rEl], 0, 0);
-  }
+  // FK for everything first (arms included), then the batting solver blends over it
+  rig.lSh.rotation.set(pose[P.lShX], pose[P.lShY], pose[P.lShZ]);
+  rig.rSh.rotation.set(pose[P.rShX], pose[P.rShY], pose[P.rShZ]);
+  rig.lEl.rotation.set(pose[P.lEl], 0, 0);
+  rig.rEl.rotation.set(pose[P.rEl], 0, 0);
+  rig.chest.rotation.set(0, 0, 0);
+  rig.hips.position.x = 0; rig.hips.position.z = 0;
+  const batting = (a.anim === 'stance' || a.anim === 'swing') && !!rig.bat;
+  const w = rig.bat || (rig.root.userData as { bat?: unknown }).bat ? applyBatting(rig, batting, a.anim, a.animP, a.animT, dt) : 0;
+  if (rig.bat) setBatMode(rig, w > 0.5 ? 'hands' : 'carry');
   if (rig.ball) rig.ball.visible = a.holdsBall;
 }

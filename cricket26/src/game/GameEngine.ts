@@ -591,10 +591,13 @@ export class GameEngine {
     });
     this.d.shot = res;
     const sa = this.actors[this.runnerFor(this.d.strikerId).a];
-    sa.anim = res.shot.family === 'leave' ? 'stance' : 'swing';
-    sa.animP = res.shot.family;
-    sa.animT = 0;
-    if (res.shot.family === 'leave') { sa.animP = 'leave'; sa.anim = 'swing'; }
+    const front = input.foot > 0 || (input.foot === 0 && res.shot.foot !== 'back');
+    const ang = input.hasDir ? input.angle : (res.shot.range[0] + res.shot.range[1]) / 2;
+    // a re-press (late loft upgrade) keeps the swing clock running
+    const keepT = sa.anim === 'swing' && sa.animT < 0.2 ? sa.animT : 0;
+    sa.anim = 'swing';
+    sa.animP = `${res.shot.family}|${Math.round(ang)}|${front ? 'f' : 'b'}`;
+    sa.animT = keepT;
     if (res.exitV && res.contact !== 'miss' && res.contact !== 'leave' && this.ball.p.z >= res.zContact) {
       if (this.ball.p.z < STUMPS_Z - 0.1 && this.phase === 'delivery') this.onBatContact(res);
       else { res.contact = 'miss'; res.exitV = null; }
@@ -1813,7 +1816,9 @@ export class GameEngine {
       if (s && n) {
         const sa = this.actors[s.a], na = this.actors[n.a];
         sa.rotY = this.offSign > 0 ? Math.PI / 2 : -Math.PI / 2;
-        if (sa.anim !== 'swing') this.setAnim(sa, 'stance');
+        // trigger movement + backlift as the bowler delivers
+        const lifted = (ph === 'runUp' && this.phaseT > this.runUpDur * 0.75) || ph === 'delivery';
+        if (sa.anim !== 'swing') { this.setAnim(sa, 'stance'); sa.animP = lifted ? 'lifted' : 'idle'; }
         s.x = (-0.12 + this.shuffle) * this.offSign; s.z = this.batterZ; sa.x = s.x; sa.z = s.z;
         na.rotY = 0;
         if (!n.running) { n.x = this.nonStrikerX(); na.x = n.x; }

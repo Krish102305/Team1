@@ -9,6 +9,7 @@ import { MatchScreen } from './components/ui/MatchScreen';
 import { ResultScreen } from './components/ui/Result';
 import { ExitScreen } from './components/ui/Exit';
 import { audio } from './game/Audio';
+import { PoseLab } from './components/three/PoseLab';
 
 export default function App() {
   const screen = useGame((s) => s.screen);
@@ -36,6 +37,7 @@ export default function App() {
     window.addEventListener('keydown', unlock);
     return () => { window.removeEventListener('pointerdown', unlock); window.removeEventListener('keydown', unlock); };
   }, []);
+  if (new URLSearchParams(window.location.search).has('poselab')) return <PoseLab />;
   switch (screen) {
     case 'menu': return <MainMenu />;
     case 'settings': return <SettingsScreen />;
