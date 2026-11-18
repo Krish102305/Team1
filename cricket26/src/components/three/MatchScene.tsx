@@ -103,16 +103,38 @@ function World({ engine, def, quality }: { engine: GameEngine; def: StadiumDef; 
     return { line, n, pts: [] as THREE.Vector3[] };
   }, []);
   const marker = useMemo(() => {
+    // bowling crosshair: reticle texture + aiming beam
+    const cv = document.createElement('canvas'); cv.width = 256; cv.height = 256;
+    const c = cv.getContext('2d')!;
+    c.strokeStyle = '#ffd400'; c.lineWidth = 7;
+    c.beginPath(); c.arc(128, 128, 92, 0, Math.PI * 2); c.stroke();
+    c.lineWidth = 4; c.beginPath(); c.arc(128, 128, 46, 0, Math.PI * 2); c.stroke();
+    c.lineWidth = 6;
+    for (const [x1, y1, x2, y2] of [[128, 8, 128, 66], [128, 190, 128, 248], [8, 128, 66, 128], [190, 128, 248, 128]]) { c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); }
+    c.fillStyle = '#ff2d2d'; c.beginPath(); c.arc(128, 128, 11, 0, Math.PI * 2); c.fill();
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
     const g = new THREE.Group();
-    const ring = new THREE.Mesh(new THREE.RingGeometry(0.16, 0.22, 32), new THREE.MeshBasicMaterial({ color: '#ffd400', transparent: true, opacity: 0.95, depthWrite: false }));
-    ring.rotation.x = -Math.PI / 2;
-    const dot = new THREE.Mesh(new THREE.CircleGeometry(0.05, 16), new THREE.MeshBasicMaterial({ color: '#ff3b30', depthWrite: false }));
-    dot.rotation.x = -Math.PI / 2; dot.position.y = 0.002;
-    const zone = new THREE.Mesh(new THREE.CircleGeometry(0.55, 32), new THREE.MeshBasicMaterial({ color: '#ffd400', transparent: true, opacity: 0.12, depthWrite: false }));
-    zone.rotation.x = -Math.PI / 2;
-    g.add(zone, ring, dot);
-    g.position.y = 0.025;
+    const reticle = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 1.7), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, toneMapped: false }));
+    reticle.rotation.x = -Math.PI / 2;
+    const glow = new THREE.Mesh(new THREE.CircleGeometry(0.9, 32), new THREE.MeshBasicMaterial({ color: '#ffd400', transparent: true, opacity: 0.12, depthWrite: false }));
+    glow.rotation.x = -Math.PI / 2; glow.position.y = -0.003;
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 1.6, 6), new THREE.MeshBasicMaterial({ color: '#ffd400', transparent: true, opacity: 0.5, depthWrite: false }));
+    beam.position.y = 0.8;
+    g.add(glow, reticle, beam);
+    g.position.y = 0.03;
+    g.userData.reticle = reticle;
     return g;
+  }, []);
+  const aimPath = useMemo(() => {
+    const m = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: '#ffe066', transparent: true, opacity: 0.75, depthWrite: false, toneMapped: false }));
+    m.frustumCulled = false;
+    m.userData.key = '';
+    return m;
+  }, []);
+  const planRing = useMemo(() => {
+    const m = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.34, 32), new THREE.MeshBasicMaterial({ color: '#ff7a00', transparent: true, opacity: 0.95, depthWrite: false, toneMapped: false }));
+    m.rotation.x = -Math.PI / 2; m.position.y = 0.025; m.scale.setScalar(1.6);
+    return m;
   }, []);
   const bounceMark = useMemo(() => {
     const m = new THREE.Mesh(new THREE.RingGeometry(0.08, 0.17, 24), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0, depthWrite: false }));
@@ -124,10 +146,10 @@ function World({ engine, def, quality }: { engine: GameEngine; def: StadiumDef; 
   const settings = useGame((s) => s.settings);
 
   useEffect(() => {
-    scene.add(rigsRef.current.group, ball, blob, trail.line, marker, bounceMark);
+    scene.add(rigsRef.current.group, ball, blob, trail.line, marker, bounceMark, aimPath, planRing);
     const g = rigsRef.current.group;
-    return () => { scene.remove(g, ball, blob, trail.line, marker, bounceMark); };
-  }, [scene, ball, blob, trail, marker, bounceMark]);
+    return () => { scene.remove(g, ball, blob, trail.line, marker, bounceMark, aimPath, planRing); };
+  }, [scene, ball, blob, trail, marker, bounceMark, aimPath, planRing]);
 
   // excite crowd on big events
   useEffect(() => {
@@ -261,7 +283,27 @@ function World({ engine, def, quality }: { engine: GameEngine; def: StadiumDef; 
     // bowling target marker
     const showMarker = engine.userRole === 'bowl' && (engine.phase === 'ready' || engine.phase === 'runUp');
     marker.visible = showMarker;
-    if (showMarker) marker.position.set(engine.targetLine * engine.offSign, 0.025, STUMPS_Z - engine.targetLen);
+    aimPath.visible = showMarker && settings.aimPath;
+    if (showMarker) {
+      marker.position.set(engine.targetLine * engine.offSign, 0.03, STUMPS_Z - engine.targetLen);
+      const pulse = 1 + Math.sin(performance.now() * 0.006) * 0.06;
+      (marker.userData.reticle as THREE.Mesh).scale.setScalar(pulse);
+      if (aimPath.visible) {
+        const key = `${engine.targetLine.toFixed(2)}|${engine.targetLen.toFixed(2)}|${engine.bowlType}|${engine.bowlVar}|${engine.aroundWicket}|${engine.inn.currentBowlerId}|${engine.offSign}`;
+        if (key !== aimPath.userData.key) {
+          aimPath.userData.key = key;
+          const pts = engine.previewPath().map((p) => new THREE.Vector3(p.x, p.y, p.z));
+          if (pts.length > 2) {
+            aimPath.geometry.dispose();
+            aimPath.geometry = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 90, 0.03, 6, false);
+          }
+        }
+      }
+    }
+    // batting aid: reveal where the AI bowler is aiming during the run-up
+    const pd = engine.plannedDelivery;
+    planRing.visible = !frame && settings.bowlerReveal && engine.userRole === 'bat' && engine.phase === 'runUp' && !!pd;
+    if (planRing.visible && pd) { planRing.position.set(pd.x, 0.025, pd.z); planRing.scale.setScalar(1.6 + Math.sin(performance.now() * 0.008) * 0.15); }
 
     updateCamera(engine, camera as THREE.PerspectiveCamera, camState.current, dt, CAM_ORDER[(CAM_ORDER.indexOf(settings.camera) + engine.camMode) % 3], settings.cameraSmoothing, frame, tmp);
   });
@@ -303,7 +345,7 @@ function updateCamera(e: GameEngine, cam: THREE.PerspectiveCamera, cs: { pos: TH
   const userRole = e.userRole;
   const cut = (name: string) => { if (cs.shot !== name) { cs.shot = name; return true; } return false; };
   const bc = BAT_CAMS[preset];
-  const bowlingView = () => { P.set(-e.offSign * 0.6, 5.2, -STUMPS_Z - 14); L.set(0, 0.4, STUMPS_Z - 2); fov = 30; };
+  const bowlingView = () => { P.set(-e.bowlerSide() * 0.9, 8.2, -STUMPS_Z - 21); L.set(0, 0.2, STUMPS_Z - 3.5); fov = 24; };
   const battingView = () => { P.set(...bc.pos); L.set(...bc.look); fov = bc.fov; };
   if (frame) {
     const cams = e.replay.cam;

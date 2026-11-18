@@ -88,6 +88,8 @@ export interface DeliveryRequest {
   noBall: boolean;
   /** bowl from around the wicket */
   around?: boolean;
+  /** deterministic preview (no scatter / random movement) for aiming aids */
+  preview?: boolean;
 }
 
 export interface DeliveryPlan {
@@ -136,14 +138,14 @@ export function planDelivery(req: DeliveryRequest): DeliveryPlan {
   if (req.variation === 'quicker') kmh *= spin ? 1.1 : 1.04;
   if (req.variation === 'slower') kmh *= spin ? 0.88 : 0.9;
   kmh *= 0.97 + exe * 0.04;
-  kmh += gauss() * 1.2;
+  if (!req.preview) kmh += gauss() * 1.2;
   const speed = kmh / 3.6;
 
   // scatter on target based on rating and execution
   const control = clamp(p.bowl / 100, 0.3, 1);
   const scatter = (0.08 + (1 - exe) * 0.9) * (1.35 - control) * req.scatterMul;
-  const lengthT = req.length + gauss() * scatter * 1.6;
-  const lineT = req.line + gauss() * scatter * 0.55;
+  const lengthT = req.length + (req.preview ? 0 : gauss() * scatter * 1.6);
+  const lineT = req.line + (req.preview ? 0 : gauss() * scatter * 0.55);
   const tx = lineT * req.offSign;
   const tz = STUMPS_Z - lengthT;
 
@@ -152,8 +154,8 @@ export function planDelivery(req: DeliveryRequest): DeliveryPlan {
   let swing = def.swing * moveQ * req.offSign;
   let seam = def.seam * moveQ * req.offSign;
   // left-arm finger spin naturally turns the other way than off-spin (handled via def choice), arm ball etc fine
-  if (!spin && def.swing === 0 && def.seam === 0) seam += gauss() * 0.25; // natural seam movement
-  if (spin) seam *= 0.85 + rand() * 0.3;
+  if (!req.preview && !spin && def.swing === 0 && def.seam === 0) seam += gauss() * 0.25; // natural seam movement
+  if (!req.preview && spin) seam *= 0.85 + rand() * 0.3;
 
   const releaseX = (leftArm ? -0.32 : 0.32) * (spin ? 0.85 : 1) * (req.around ? -1.6 : 1);
   const release = { x: releaseX, y: spin ? 2.05 : 2.2, z: -STUMPS_Z + 0.6 };

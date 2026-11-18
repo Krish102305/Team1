@@ -206,6 +206,17 @@ function Hints({ e }: { e: GameEngine }) {
 }
 
 /** live shot selector: aimed direction on a mini field, footwork, modifiers and crease position */
+function BowlerPlan({ e }: { e: GameEngine }) {
+  const ph = useGame((s) => s.phase);
+  const on = useGame((s) => s.settings.bowlerReveal);
+  useHud();
+  const pd = e.plannedDelivery;
+  if (!on || e.userRole !== 'bat' || ph !== 'runUp' || !pd) return null;
+  const len = 10.06 - pd.z;
+  const lenName = len < 1.4 ? 'yorker' : len < 3.5 ? 'full' : len < 6.6 ? 'good length' : len < 8.5 ? 'back of a length' : 'short';
+  return <div className="plan-banner">BOWLER'S PLAN: <b>{pd.name}</b>{pd.variation !== 'normal' ? ` (${pd.variation})` : ''} · {lenName}</div>;
+}
+
 function ShotSelector({ e }: { e: GameEngine }) {
   const ph = useGame((s) => s.phase);
   useHud();
@@ -503,6 +514,7 @@ export function MatchScreen() {
         <BowlPanel e={engine} />
         <Hints e={engine} />
         <ShotSelector e={engine} />
+        <BowlerPlan e={engine} />
         <ReplayBanner e={engine} />
         <SimBanner e={engine} />
         {replayAvailable && !engine.replay.active && (phase === 'dead' || phase === 'ready' || phase === 'selectBowler') && <div className="replay-hint">▶ Press V for replay</div>}

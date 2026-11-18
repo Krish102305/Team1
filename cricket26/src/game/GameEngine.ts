@@ -693,7 +693,25 @@ export class GameEngine {
     }
   }
 
+  /** AI bowler's plan, decided as the run-up starts (so it can be revealed to the batter) */
+  aiReq: ReturnType<typeof aiChooseDelivery> | null = null;
+  plannedDelivery: { name: string; x: number; z: number; variation: Variation } | null = null;
+
+  /** deterministic preview of the user's aimed delivery (for the crosshair trajectory line) */
+  previewPath(): { x: number; y: number; z: number }[] {
+    const plan = planDelivery({ bowler: this.bowlerPlayer, type: this.bowlType, variation: this.bowlVar, line: this.targetLine, length: this.targetLen,
+      execution: 1, offSign: this.offSign, scatterMul: 0, noBall: false, around: this.aroundWicket, preview: true });
+    const out: { x: number; y: number; z: number }[] = [];
+    for (let i = 0; i < plan.path.length; i += 6) { const p = plan.path[i]; if (p.z > STUMPS_Z + 0.5) break; out.push({ x: p.x, y: p.y, z: p.z }); }
+    return out;
+  }
+
   private beginRunUp() {
+    if (!this.userBowling) {
+      this.aiReq = aiChooseDelivery(this.bowlerPlayer, this.striker, this.situation());
+      const name = deliveryLabel(this.bowlerPlayer.bowlStyle, this.aiReq.type);
+      this.plannedDelivery = { name, x: this.aiReq.line * this.offSign, z: STUMPS_Z - this.aiReq.length, variation: this.aiReq.variation };
+    }
     // anyone still walking back snaps to their mark as the bowler turns
     this.fielders.forEach((f, i) => {
       if (i === this.bowlerF) return;
@@ -746,8 +764,10 @@ export class GameEngine {
       this.lastTiming = m >= zoneLo && m <= zoneHi ? (exec > 0.95 ? 'PERFECT RELEASE' : 'GOOD RELEASE') : noBall ? 'OVERSTEPPED' : m < zoneLo ? 'EARLY RELEASE' : 'LATE RELEASE';
       this.listener.onTiming(this.lastTiming, '', exec);
     } else {
-      req = aiChooseDelivery(bowler, this.striker, this.situation());
+      req = this.aiReq ?? aiChooseDelivery(bowler, this.striker, this.situation());
     }
+    this.aiReq = null;
+    this.plannedDelivery = null;
     const plan = planDelivery({ bowler, offSign: this.offSign, around: this.userBowling && this.aroundWicket, ...req });
     this.d.plan = plan;
     this.d.releaseT = this.t;
