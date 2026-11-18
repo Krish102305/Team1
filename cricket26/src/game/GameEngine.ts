@@ -182,6 +182,7 @@ export class GameEngine {
   runUpDur = RUNUP_PACE;
   deliverT = -1;
   lastSpeed = 0;
+  lastDeliveryName = '';
   lastTiming = '';
   runHint: 'safe' | 'risky' | 'danger' | '' = '';
   bannerText = '';
@@ -363,9 +364,10 @@ export class GameEngine {
 
   selectBowler(id: string) {
     if (this.phase !== 'selectBowler') return;
+    const firstBall = this.inn.legalBalls === 0 && this.inn.history.length === 0;
     this.match.setBowler(id);
     this.assignField();
-    this.placeEveryone(false);
+    this.placeEveryone(firstBall);
     this.newDeliveryState();
     this.setPhase('ready');
   }
@@ -452,7 +454,7 @@ export class GameEngine {
         const v: Variation[] = ['normal', 'quicker', 'slower'];
         this.bowlVar = v[(v.indexOf(this.bowlVar) + 1) % 3];
         this.listener.onState(this);
-      } else if (a === 'bowlAction' && this.phaseT > 0.4 && this.fieldSettled()) {
+      } else if (a === 'bowlAction' && this.phaseT > 0.3) {
         this.beginRunUp();
       }
     }
@@ -581,7 +583,7 @@ export class GameEngine {
   }
 
   fieldSettled() {
-    return this.fielders.every((f) => Math.hypot(this.actors[f.a].x - f.homeX, this.actors[f.a].z - f.homeZ) < 3) || this.phaseT > 12;
+    return this.fielders.every((f) => Math.hypot(this.actors[f.a].x - f.homeX, this.actors[f.a].z - f.homeZ) < 3) || this.phaseT > 4.5;
   }
 
   private tickReady(h: number) {
@@ -600,6 +602,12 @@ export class GameEngine {
   }
 
   private beginRunUp() {
+    // anyone still walking back snaps to their mark as the bowler turns
+    this.fielders.forEach((f, i) => {
+      if (i === this.bowlerF) return;
+      const fa = this.actors[f.a];
+      if (Math.hypot(fa.x - f.homeX, fa.z - f.homeZ) > 3) { fa.x = f.homeX; fa.z = f.homeZ; f.speedNow = 0; }
+    });
     const b = this.fielders[this.bowlerF];
     const a = this.actors[b.a];
     a.x = b.homeX; a.z = this.runUpStartZ;
@@ -657,6 +665,7 @@ export class GameEngine {
     this.d.meta.length = plan.lengthName;
     this.d.meta.line = plan.lineName;
     this.lastSpeed = plan.speedKmh;
+    this.lastDeliveryName = plan.name;
     this.ball = { ...plan.ball, p: { ...plan.ball.p }, v: { ...plan.ball.v } };
     this.ballMode = 'flight';
     if (this.d.noBall) { this.listener.onNotify('NO BALL', 'extra'); this.listener.onSound('whistle'); }

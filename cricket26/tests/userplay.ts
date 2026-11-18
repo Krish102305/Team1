@@ -1,0 +1,58 @@
+import { GameEngine, InputAction } from '../src/game/GameEngine';
+import { TEAM_MAP } from '../src/data/teams';
+import { mulberry32, setRng, gauss } from '../src/utils/random';
+import { idealPressTime, readBall } from '../src/game/BattingEngine';
+import { SIM_STEP } from '../src/game/constants';
+import type { MatchConfig, Difficulty } from '../src/game/types';
+
+const overs = Number(process.argv[2] ?? 5);
+const diff = (process.argv[3] ?? 'medium') as Difficulty;
+const errSd = Number(process.argv[4] ?? 0.035);
+setRng(mulberry32(99));
+const cfg: MatchConfig = { userTeamId: 'IND', aiTeamId: 'AUS', overs, format: 'Custom', difficulty: diff, stadiumId: 'intl', timeOfDay: 'night', userXI: TEAM_MAP.IND.defaultXI, aiXI: TEAM_MAP.AUS.defaultXI, userBatsFirst: true, tossText: '' };
+const e = new GameEngine(cfg);
+const timing: Record<string, number> = {}, notes: Record<string, number> = {};
+e.listener = { ...e.listener, onTiming: (l) => { timing[l] = (timing[l] ?? 0) + 1; }, onNotify: (t) => { notes[t] = (notes[t] ?? 0) + 1; }, onState() {}, onPhase() {}, onCommentary() {}, onSound() {}, onReplayAvailable() {} };
+let plan: { at: number; key: InputAction; loft: boolean } | null = null;
+let released = false, lastDelivery = -1, runPressed = false, upAt = -1;
+const press = (a: InputAction) => e.keyDown(a);
+const release = (a: InputAction) => e.keyUp(a);
+let guard = 0;
+while (e.phase !== 'matchOver' && guard++ < 2_000_000) {
+  // ---- user batting
+  if (e.userBatting) {
+    if (e.phase === 'delivery' && e.d.id !== lastDelivery && e.d.plan) {
+      lastDelivery = e.d.id;
+      const r = readBall(e.d.plan.path, e.d.plan.bounceIndex, 9.0, e.offSign, e.d.plan.speedKmh, false);
+      const len = r.pitchDist ?? -1;
+      const key: InputAction = r.lineOff > 0.25 ? 'batOff' : r.lineOff < -0.1 ? 'batLeg' : len > 7 ? 'batLeg' : 'batStraight';
+      const zc = len > 7 ? 9.45 : 8.8;
+      const ideal = idealPressTime(e.d.plan.path, zc) ?? 0.3;
+      plan = { at: e.d.releaseT + ideal + gauss() * errSd, key, loft: Math.random() < 0.3 };
+      runPressed = false;
+    }
+    if (plan && e.phase === 'delivery' && e.t >= plan.at) {
+      if (plan.loft) press('batLoft');
+      press(plan.key); upAt = e.t + 0.12; plan = null;
+    }
+    if (upAt > 0 && e.t >= upAt) { release('batStraight'); release('batOff'); release('batLeg'); release('batLoft'); upAt = -1; }
+    if (e.phase === 'live' && !runPressed && e.d.liveT > 0.3 && (e.runHint === 'safe')) { press('run'); release('run'); runPressed = true; }
+    if (e.phase === 'live' && runPressed && e.runsDone >= 1 && e.runHint === 'safe' && !e.runQueued && e.runners.some((r) => r.running) === false && e.d.liveT < 6) { /* idle */ }
+  }
+  // ---- user bowling
+  if (e.userBowling) {
+    if (e.phase === 'selectBowler') e.selectBowler(e.match.eligibleBowlers()[0]);
+    if (e.phase === 'ready' && e.phaseT > 0.5 && e.fieldSettled() && !e.held('bowlAction')) { e.targetLen = 5 + Math.random() * 2; e.targetLine = 0.15; press('bowlAction'); released = false; }
+    if (e.phase === 'runUp' && !released && e.meter >= 0.76 + gauss() * 0.03) { release('bowlAction'); released = true; }
+  }
+  if (e.phase === 'intro' || e.phase === 'walkIn') { press('skip'); release('skip'); }
+  if (e.phase === 'inningsBreak') e.continueAfterInningsBreak();
+  e.advance(SIM_STEP);
+}
+for (const inn of e.match.innings) {
+  const batSum = Object.values(inn.batters).reduce((a, b) => a + b.runs, 0);
+  const ex = inn.extras.wd + inn.extras.nb + inn.extras.b + inn.extras.lb;
+  const kinds: Record<string, number> = {}; inn.history.forEach((h) => { if (h.wicket) kinds[h.wicket.kind] = (kinds[h.wicket.kind] ?? 0) + 1; });
+  console.log(`${inn.battingTeamId} ${inn.runs}/${inn.wickets} (${Math.floor(inn.legalBalls / 6)}.${inn.legalBalls % 6}) reconcile=${batSum + ex === inn.runs} W=${JSON.stringify(kinds)} 4s=${Object.values(inn.batters).reduce((a, b) => a + b.fours, 0)} 6s=${Object.values(inn.batters).reduce((a, b) => a + b.sixes, 0)}`);
+}
+console.log('result:', e.match.result?.text, '| timing', timing, '| notes', notes);

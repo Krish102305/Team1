@@ -125,7 +125,7 @@ export class MatchManager {
       if (id === inn.prevBowlerId) return false;
       const card = inn.bowlers[id];
       return !card || Math.floor(card.balls / 6) < this.maxBowlerOvers;
-    });
+    }).sort((a, b) => getPlayer(b).bowl - getPlayer(a).bowl);
   }
 
   /** AI captain choice of bowler. */
