@@ -109,25 +109,23 @@ export function buildStadium(def: StadiumDef, time: TimeOfDay, quality: Quality,
   track(beyond.geometry); track(beyond.material as THREE.Material);
   group.add(beyond);
 
-  // fielding circle (30-yard) dots
-  const dotGeo = track(new THREE.CircleGeometry(0.18, 8));
-  const dots = new THREE.InstancedMesh(dotGeo, track(new THREE.MeshBasicMaterial({ color: '#f4f4f4' })), 140);
+  // fielding circle (30-yard): two semicircles of 27.43 m centred on each set of stumps, joined by straight lines
+  const circleR = 27.43;
+  const per = 2 * Math.PI * circleR + 4 * STUMPS_Z;
+  const nDots = Math.round(per / 1.9);
+  const dotGeo = track(new THREE.CircleGeometry(0.22, 10));
+  const dots = new THREE.InstancedMesh(dotGeo, track(new THREE.MeshBasicMaterial({ color: '#f7f7f7' })), nDots);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0)), sc = new THREE.Vector3(1, 1, 1), pos = new THREE.Vector3();
-  let di = 0;
-  const circleR = 27.4;
-  for (let i = 0; i < 140; i++) {
-    const t = i / 140;
-    // stadium shaped: two semicircles + straights
-    const per = Math.PI * circleR * 2 + 4 * STUMPS_Z;
-    let s = t * per, x = 0, z = 0;
-    const semi = Math.PI * circleR;
-    if (s < semi) { const a = s / circleR - Math.PI / 2; x = Math.cos(a) * circleR; z = STUMPS_Z + Math.sin(a) * circleR; }
-    else if (s < semi + 2 * STUMPS_Z) { x = -circleR; z = STUMPS_Z - (s - semi); }
-    else if (s < 2 * semi + 2 * STUMPS_Z) { const a = (s - semi - 2 * STUMPS_Z) / circleR + Math.PI / 2; x = Math.cos(a) * circleR; z = -STUMPS_Z + Math.sin(a) * circleR; }
-    else { x = circleR; z = -STUMPS_Z + (s - 2 * semi - 2 * STUMPS_Z); }
+  const semi = Math.PI * circleR, straight = 2 * STUMPS_Z;
+  for (let i = 0; i < nDots; i++) {
+    let s = (i / nDots) * per, x: number, z: number;
+    if (s < straight) { x = circleR; z = -STUMPS_Z + s; }
+    else if ((s -= straight) < semi) { const th = s / circleR; x = circleR * Math.cos(th); z = STUMPS_Z + circleR * Math.sin(th); }
+    else if ((s -= semi) < straight) { x = -circleR; z = STUMPS_Z - s; }
+    else { s -= straight; const th = Math.PI + s / circleR; x = circleR * Math.cos(th); z = -STUMPS_Z + circleR * Math.sin(th); }
     pos.set(x, 0.02, z);
     m4.compose(pos, q, sc);
-    dots.setMatrixAt(di++, m4);
+    dots.setMatrixAt(i, m4);
   }
   group.add(dots);
 

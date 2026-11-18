@@ -317,11 +317,11 @@ export class GameEngine {
     const s = this.runnerFor(inn.strikerId), n = this.runnerFor(inn.nonStrikerId);
     if (s && n) {
       s.end = 1; s.target = 1; s.running = false; s.z = BATTER_Z; s.x = -0.12 * os; s.speedNow = 0;
-      n.end = -1; n.target = -1; n.running = false; n.z = -STUMPS_Z + 0.3; n.x = -1.05 * os; n.speedNow = 0;
+      n.end = -1; n.target = -1; n.running = false; n.z = -STUMPS_Z + 0.3; n.x = this.nonStrikerX(); n.speedNow = 0;
       for (const r of [s, n]) { const a = this.actors[r.a]; a.x = r.x; a.z = r.z; a.visible = true; a.mirror = getPlayer(r.playerId).battingHand === 'R' ? 1 : -1; }
     }
     const u0 = this.actors[this.umpires[0]], u1 = this.actors[this.umpires[1]];
-    u0.x = -1.3 * os * -1; u0.z = -STUMPS_Z - 2.2; u0.rotY = 0; u0.anim = 'umpire';
+    u0.x = this.umpireX(); u0.z = -STUMPS_Z - 2.3; u0.rotY = 0; u0.anim = 'umpire';
     u1.x = -24 * os; u1.z = BATTER_Z - 0.4; u1.rotY = os > 0 ? Math.PI / 2 : -Math.PI / 2; u1.anim = 'umpire';
     this.bails.striker = 0; this.bails.other = 0;
   }
@@ -416,6 +416,7 @@ export class GameEngine {
   }
 
   private tick(h: number) {
+    if (this.simStopPending) { this.simStopPending = false; this.stopSim(); }
     this.t += h;
     this.phaseT += h;
     this.processInput();
@@ -429,7 +430,7 @@ export class GameEngine {
       case 'delivery': this.tickBall(h); this.tickDelivery(h); break;
       case 'live': this.tickBall(h); this.tickLive(h); break;
       case 'dead': this.tickDead(h); break;
-      case 'inningsBreak': if (this.autoplay && this.phaseT > 1) this.continueAfterInningsBreak(); break;
+      case 'inningsBreak': if (this.autoplay && (!this.simUntil || this.simUntil === 'match') && this.phaseT > 1) this.continueAfterInningsBreak(); break;
       case 'matchOver': break;
     }
     this.tickActors(h);
@@ -610,7 +611,7 @@ export class GameEngine {
       if (!r) continue;
       const a = this.actors[r.a];
       const isStriker = id === this.inn.strikerId;
-      const tx = isStriker ? -0.12 * this.offSign : -1.05 * this.offSign;
+      const tx = isStriker ? -0.12 * this.offSign : this.nonStrikerX();
       const tz = isStriker ? BATTER_Z : -STUMPS_Z + 0.3;
       if (this.phaseT < 0.05) {
         const ang = this.pavilionAngle();
@@ -664,6 +665,13 @@ export class GameEngine {
     this.listener.onCommentary(`${getPlayer(this.inn.currentBowlerId).name} will bowl the next over.`);
     this.setPhase('ready');
   }
+
+  /** run-up side of the current bowler (+1 / -1 in world x) */
+  bowlerSide() { const b = this.fielders[this.bowlerF]; return b && b.homeX < 0 ? -1 : 1; }
+  /** the non-striker backs up on the side away from the bowler's run-up */
+  nonStrikerX() { return -this.bowlerSide() * 1.1; }
+  /** bowler's-end umpire stands directly behind the stumps, a touch to the non-bowling side */
+  umpireX() { return -this.bowlerSide() * 0.25; }
 
   fieldSettled() {
     return this.fielders.every((f) => Math.hypot(this.actors[f.a].x - f.homeX, this.actors[f.a].z - f.homeZ) < 3) || this.phaseT > 4.5;
@@ -1686,12 +1694,35 @@ export class GameEngine {
     if (d.deadT > minT || this.phaseT > 90) this.afterDead();
   }
 
+  // ---- simulate (AI plays both sides, fast-forwarded; every ball is still played out physically)
+  simUntil: 'over' | 'innings' | 'match' | null = null;
+  simStopPending = false;
+  startSim(until: 'over' | 'innings' | 'match') {
+    this.simUntil = until;
+    this.autoplay = true;
+    this.timeScale = 14;
+    this.paused = false;
+    this.listener.onState(this);
+  }
+  stopSim() {
+    if (!this.simUntil) return;
+    this.simUntil = null;
+    this.autoplay = false;
+    this.timeScale = 1;
+    // hand back a clean state for the human
+    if (this.phase === 'ready' && this.userBowling && this.inn.legalBalls % 6 === 0) this.setPhase('selectBowler');
+    this.listener.onState(this);
+  }
+
   private afterDead() {
     if (!this.outcome) return;
     const o = this.outcome;
     this.outcome = null;
     const res = this.match.record(o);
     this.lastResult = res;
+    if (this.simUntil && ((this.simUntil === 'over' && (res.overComplete || res.inningsComplete)) || (this.simUntil === 'innings' && res.inningsComplete) || res.matchComplete)) {
+      this.simStopPending = true;
+    }
     this.listener.onState(this);
     if (res.milestone) this.listener.onNotify(res.milestone.split(' for ')[0], 'milestone', res.milestone);
     if (res.overComplete && !res.inningsComplete) {
@@ -1765,6 +1796,8 @@ export class GameEngine {
         if (sa.anim !== 'swing') this.setAnim(sa, 'stance');
         s.x = (-0.12 + this.shuffle) * this.offSign; s.z = this.batterZ; sa.x = s.x; sa.z = s.z;
         na.rotY = 0;
+        if (!n.running) { n.x = this.nonStrikerX(); na.x = n.x; }
+        const ua = this.actors[this.umpires[0]]; ua.x = this.umpireX(); ua.z = -STUMPS_Z - 2.3;
         if (ph === 'runUp' && this.phaseT > this.runUpDur * 0.5) {
           n.z = Math.min(-STUMPS_Z + 1.4, n.z + h * 1.2); na.z = n.z; this.setAnim(na, 'walkBat'); na.moveSpeed = 1.2;
         } else if (ph !== 'delivery') this.setAnim(na, 'idle');

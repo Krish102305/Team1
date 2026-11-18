@@ -58,3 +58,20 @@ for (const inn of e.match.innings) {
   console.log(`${inn.battingTeamId} ${inn.runs}/${inn.wickets} (${Math.floor(inn.legalBalls / 6)}.${inn.legalBalls % 6}) reconcile=${batSum + ex === inn.runs} W=${JSON.stringify(kinds)} 4s=${Object.values(inn.batters).reduce((a, b) => a + b.fours, 0)} 6s=${Object.values(inn.batters).reduce((a, b) => a + b.sixes, 0)}`);
 }
 console.log('result:', e.match.result?.text, '| timing', timing, '| notes', notes);
+
+// ---- simulate option check
+{
+  const e2 = new GameEngine({ ...cfg, overs: 3 });
+  e2.listener = { ...e2.listener, onNotify() {}, onState() {}, onPhase() {}, onCommentary() {}, onSound() {}, onReplayAvailable() {}, onTiming() {} };
+  let g = 0;
+  while (e2.phase !== 'ready' && g++ < 5000) { if (e2.phase === 'intro' || e2.phase === 'walkIn') { e2.keyDown('skip'); e2.keyUp('skip'); } e2.advance(SIM_STEP * 10); }
+  e2.startSim('over');
+  g = 0; while (e2.simUntil && g++ < 200000) e2.advance(SIM_STEP);
+  console.log('sim over → balls', e2.inn.legalBalls, 'phase', e2.phase, 'autoplay', e2.autoplay);
+  e2.startSim('innings');
+  g = 0; while (e2.simUntil && g++ < 2000000) e2.advance(SIM_STEP);
+  console.log('sim innings → phase', e2.phase, 'score', e2.match.innings[0].runs + '/' + e2.match.innings[0].wickets);
+  e2.startSim('match');
+  g = 0; while (e2.simUntil && g++ < 2000000) e2.advance(SIM_STEP);
+  console.log('sim match → phase', e2.phase, e2.match.result?.text);
+}

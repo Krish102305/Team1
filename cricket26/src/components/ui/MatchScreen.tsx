@@ -388,6 +388,12 @@ function PauseMenu({ e, onResume }: { e: GameEngine; onResume: () => void }) {
           <h2>Game <span>Paused</span></h2>
           <div className="btns">
             <button className="btn gold" autoFocus onClick={onResume}>Resume</button>
+            <div style={{ color: 'var(--muted)', fontSize: 12, letterSpacing: 2, marginTop: 6 }}>SIMULATE (AI plays both sides, fast-forward)</div>
+            <div className="row">
+              <button className="btn" onClick={() => { e.startSim('over'); onResume(); }}>To end of over</button>
+              <button className="btn" onClick={() => { e.startSim('innings'); onResume(); }}>To end of innings</button>
+              <button className="btn" onClick={() => { e.startSim('match'); onResume(); }}>Whole match</button>
+            </div>
             <button className="btn" onClick={() => setView('settings')}>Settings & Controls</button>
             <button className="btn" onClick={() => setView('quit')}>Quit to Main Menu</button>
           </div>
@@ -406,6 +412,17 @@ function PauseMenu({ e, onResume }: { e: GameEngine; onResume: () => void }) {
           </div>
         </>)}
       </div>
+    </div>
+  );
+}
+
+function SimBanner({ e }: { e: GameEngine }) {
+  useHud();
+  if (!e.simUntil) return null;
+  return (
+    <div className="sim-banner interactive">
+      ⏩ SIMULATING to end of {e.simUntil} · {TEAM_MAP[e.inn.battingTeamId].short} {e.inn.runs}/{e.inn.wickets} ({oversText(e.inn.legalBalls)})
+      <button className="btn sm" onClick={() => e.stopSim()}>Stop</button>
     </div>
   );
 }
@@ -451,6 +468,7 @@ export function MatchScreen() {
     const controls = new Controls(st.settings.keys);
     controls.onPause = () => {
       if (engine.replay.active) { engine.replay.stop(); return; }
+      if (engine.simUntil) { engine.stopSim(); return; }
       engine.paused = !engine.paused;
       useGame.getState().setPaused(engine.paused);
     };
@@ -486,12 +504,13 @@ export function MatchScreen() {
         <Hints e={engine} />
         <ShotSelector e={engine} />
         <ReplayBanner e={engine} />
+        <SimBanner e={engine} />
         {replayAvailable && !engine.replay.active && (phase === 'dead' || phase === 'ready' || phase === 'selectBowler') && <div className="replay-hint">▶ Press V for replay</div>}
         {phase === 'intro' && <IntroCard e={engine} />}
         {phase === 'walkIn' && <WalkInCard e={engine} />}
         {phase === 'matchOver' && <MatchOver e={engine} />}
       </div>
-      {phase === 'selectBowler' && !engine.autoplay && <BowlerSelect e={engine} />}
+      {phase === 'selectBowler' && !engine.autoplay && !engine.simUntil && <BowlerSelect e={engine} />}
       {phase === 'inningsBreak' && <InningsBreak e={engine} />}
       {paused && <PauseMenu e={engine} onResume={resume} />}
     </div>

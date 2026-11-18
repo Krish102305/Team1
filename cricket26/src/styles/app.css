@@ -202,3 +202,6 @@ input[type=range] { width: 260px; accent-color: var(--gold); }
 .sel-crease { position: relative; height: 10px; border-top: 2px solid #fff; margin: 8px 0 4px; }
 .sel-dot { position: absolute; top: 4px; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%; background: var(--gold); transition: top .1s; }
 .sel-shot { font-size: 12px; font-weight: 800; color: #fff; min-height: 14px; }
+
+.sim-banner { position: absolute; top: 120px; left: 50%; transform: translateX(-50%); background: rgba(255,199,44,0.95); color: #1a1200; padding: 8px 16px; border-radius: 4px; font-weight: 900; letter-spacing: 1px; display: flex; gap: 14px; align-items: center; pointer-events: auto; }
+.sim-banner .btn { color: #1a1200; border-color: rgba(0,0,0,0.3); }
