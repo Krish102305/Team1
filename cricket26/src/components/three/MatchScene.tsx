@@ -4,7 +4,8 @@ import * as THREE from 'three';
 import type { GameEngine, Actor } from '../../game/GameEngine';
 import { buildRig, applyActor, Rig, mat, setIdentity, disposeRig } from './PlayerRig';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { EffectComposer, Bloom, Vignette, HueSaturation, BrightnessContrast, SMAA } from '@react-three/postprocessing';
+import { Sky } from 'three/examples/jsm/objects/Sky.js';
+import { EffectComposer, Bloom, Vignette, HueSaturation, BrightnessContrast, SMAA, N8AO } from '@react-three/postprocessing';
 import { buildSky, buildStadium, Quality, StadiumHandles } from './StadiumBuilder';
 import { STADIUM_MAP, StadiumDef } from '../../data/stadiums';
 import { TEAM_MAP, PLAYER_MAP } from '../../data/teams';
@@ -16,45 +17,76 @@ import { ReplayFrame } from '../../game/Replay';
 import { audio } from '../../game/Audio';
 import { oversText } from '../../game/MatchManager';
 
-const BLOB_GEO = new THREE.CircleGeometry(0.42, 16);
-const BLOB_MAT = new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.28, depthWrite: false });
+const BLOB_GEO = new THREE.PlaneGeometry(1.1, 1.1);
+const BLOB_TEX = (() => {
+  if (typeof document === 'undefined') return null;
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d')!; const gr = g.createRadialGradient(32, 32, 2, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(0.55, 'rgba(0,0,0,0.6)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+})();
+const BLOB_MAT = new THREE.MeshBasicMaterial({ color: '#000000', map: BLOB_TEX, transparent: true, opacity: 0.55, depthWrite: false });
+const BLOB_MAT_SOFT = new THREE.MeshBasicMaterial({ color: '#000000', map: BLOB_TEX, transparent: true, opacity: 0.32, depthWrite: false });
 const SKIN = ['#7a4a2a', '#8f5d3b', '#a87452', '#c08a66', '#d4a585', '#5e3a22', '#6e4630', '#b98463'];
 
 export function Lighting({ def, time, quality }: { def: StadiumDef; time: TimeOfDay; quality: Quality }) {
   const sky = def.sky[time];
   const { scene, gl } = useThree();
-  const skyGroup = useMemo(() => buildSky(sky.top, sky.bottom, time === 'night'), [sky.top, sky.bottom, time]);
+  const sunPos: [number, number, number] = time === 'day' ? [45, 90, 35] : time === 'evening' ? [110, 22, -60] : [25, 95, 15];
+  const skyGroup = useMemo(() => {
+    const g = buildSky(sky.top, sky.bottom, time === 'night');
+    if (time !== 'night') {
+      // physically based atmosphere (Rayleigh/Mie scattering) — real sunsets for evening games
+      const atmos = new Sky();
+      atmos.scale.setScalar(1700);
+      const u = atmos.material.uniforms;
+      const overcast = def.id === 'classic';
+      u.turbidity.value = time === 'evening' ? 8 : overcast ? 9 : 3.2;
+      u.rayleigh.value = time === 'evening' ? 2.6 : overcast ? 2.2 : 1.1;
+      u.mieCoefficient.value = time === 'evening' ? 0.008 : 0.004;
+      u.mieDirectionalG.value = 0.82;
+      u.sunPosition.value.set(...sunPos).normalize();
+      (atmos.material as THREE.ShaderMaterial).depthWrite = false;
+      atmos.renderOrder = -2;
+      g.children[0].visible = false; // hide the plain gradient dome
+      g.add(atmos);
+    }
+    return g;
+  }, [sky.top, sky.bottom, time, def.id]);
   useEffect(() => {
-    scene.fog = new THREE.Fog(sky.fog, 180, 950);
-    gl.toneMappingExposure = time === 'night' ? 1.0 : time === 'evening' ? 1.02 : 1.05;
-    // image-based lighting for nicer helmets, bats, pads and boards
+    scene.fog = new THREE.Fog(sky.fog, 200, 1100);
+    gl.toneMapping = THREE.ACESFilmicToneMapping;
+    gl.toneMappingExposure = time === 'night' ? 1.05 : time === 'evening' ? 0.95 : 0.92;
+    // image-based lighting: built from the actual sky so reflections & fill match the scene
     if (quality === 'low') { return () => { scene.fog = null; }; }
     const pmrem = new THREE.PMREMGenerator(gl);
-    const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    let envTex: THREE.Texture;
+    if (time === 'night') envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    else { const envScene = new THREE.Scene(); envScene.add(skyGroup.clone()); envTex = pmrem.fromScene(envScene, 0.02, 1, 2000).texture; }
     scene.environment = envTex;
-    (scene as unknown as { environmentIntensity: number }).environmentIntensity = time === 'night' ? 0.25 : 0.45;
+    (scene as unknown as { environmentIntensity: number }).environmentIntensity = time === 'night' ? 0.3 : 0.32;
     return () => { scene.fog = null; scene.environment = null; envTex.dispose(); pmrem.dispose(); };
-  }, [scene, gl, sky.fog, time, quality]);
+  }, [scene, gl, sky.fog, time, quality, skyGroup]);
   useEffect(() => () => { skyGroup.traverse((o) => { const m = o as THREE.Mesh; m.geometry?.dispose(); (m.material as THREE.Material | undefined)?.dispose?.(); }); }, [skyGroup]);
   useFrame((_, dt) => { skyGroup.children.forEach((c) => { if (c.userData.spin) c.rotation.y += dt * 0.004; }); });
-  const sunPos: [number, number, number] = time === 'day' ? [45, 90, 35] : time === 'evening' ? [90, 38, -55] : [25, 95, 15];
   const mapSize = quality === 'high' ? 4096 : quality === 'medium' ? 2048 : 1024;
   return (
     <>
       <primitive object={skyGroup} />
-      <hemisphereLight args={[sky.top, def.outfield, sky.ambient * 0.9]} />
+      <hemisphereLight args={[sky.top, def.outfield, sky.ambient * (time === 'night' ? 0.9 : 0.7)]} />
       <ambientLight intensity={sky.ambient * 0.25} />
       <directionalLight
         position={sunPos}
-        intensity={sky.sunIntensity}
+        intensity={sky.sunIntensity * (time === 'day' ? 1.15 : 1)}
         color={sky.sun}
         castShadow={quality !== 'low'}
         shadow-mapSize-width={mapSize}
         shadow-mapSize-height={mapSize}
-        shadow-camera-left={-55}
-        shadow-camera-right={55}
-        shadow-camera-top={55}
-        shadow-camera-bottom={-55}
+        shadow-camera-left={-42}
+        shadow-camera-right={42}
+        shadow-camera-top={42}
+        shadow-camera-bottom={-42}
         shadow-camera-near={10}
         shadow-camera-far={260}
         shadow-bias={-0.0004}
@@ -188,8 +220,8 @@ function World({ engine, def, quality }: { engine: GameEngine; def: StadiumDef; 
         secondary: team ? (isKeeper ? team.primary : team.secondary) : '#333333',
         seed: h,
       });
-      if (quality === 'low') {
-        const blobS = new THREE.Mesh(BLOB_GEO, BLOB_MAT);
+      {
+        const blobS = new THREE.Mesh(BLOB_GEO, quality === 'low' ? BLOB_MAT : BLOB_MAT_SOFT);
         blobS.rotation.x = -Math.PI / 2; blobS.position.y = 0.015;
         rig.root.add(blobS);
       }
@@ -445,9 +477,10 @@ export function PostFX({ quality, time }: { quality: Quality; time: TimeOfDay })
   if (quality === 'low') return null;
   return (
     <EffectComposer multisampling={quality === 'high' ? 4 : 0} enableNormalPass={false}>
+      {quality === 'high' ? <N8AO aoRadius={1.2} intensity={2.2} distanceFalloff={0.6} halfRes /> : <></>}
       <Bloom intensity={time === 'night' ? 0.85 : time === 'evening' ? 0.5 : 0.22} luminanceThreshold={time === 'night' ? 0.72 : 0.88} luminanceSmoothing={0.2} mipmapBlur />
-      <HueSaturation saturation={0.06} />
-      <BrightnessContrast contrast={0.07} brightness={0.0} />
+      <HueSaturation saturation={time === 'day' ? 0.14 : 0.08} />
+      <BrightnessContrast contrast={time === 'day' ? 0.13 : 0.08} brightness={time === 'day' ? -0.02 : 0} />
       <Vignette eskil={false} offset={0.28} darkness={0.42} />
       {quality === 'medium' ? <SMAA /> : <></>}
     </EffectComposer>

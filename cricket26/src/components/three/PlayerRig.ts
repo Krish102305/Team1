@@ -86,7 +86,23 @@ export interface RigLook {
 }
 
 // smoother shared shapes
-const torsoGeo = () => geo('torso', () => { const g = new THREE.CapsuleGeometry(0.155, 0.28, 6, 16); g.scale(1.12, 1, 0.78); return g; });
+/** lathe a profile [[y, r], ...] (y descending from 0) into a closed, smooth body part */
+function lathe(key: string, prof: [number, number][], sx = 1, sz = 1) {
+  return geo(key, () => {
+    const pts = [new THREE.Vector2(0, prof[prof.length - 1][0] - 0.004), ...[...prof].reverse().map(([y, r]) => new THREE.Vector2(r, y)), new THREE.Vector2(0, prof[0][0] + 0.004)];
+    const g = new THREE.LatheGeometry(pts, 18);
+    g.scale(sx, 1, sz);
+    g.computeVertexNormals();
+    return g;
+  });
+}
+// athletic torso: broad shoulders, chest, narrow waist (spine-bone space, waist at y=-0.06)
+const torsoGeo = () => lathe('torso2', [[0.5, 0.06], [0.47, 0.15], [0.42, 0.185], [0.32, 0.178], [0.2, 0.158], [0.08, 0.14], [-0.02, 0.138], [-0.07, 0.14]], 1.18, 0.72);
+const upperArmGeo = () => lathe('uarm', [[0.02, 0.05], [-0.04, 0.056], [-0.13, 0.054], [-0.24, 0.045], [-0.31, 0.04]]);
+const sleeveGeo = () => lathe('sleeve', [[0.04, 0.062], [-0.02, 0.064], [-0.13, 0.06], [-0.15, 0.058]]);
+const forearmGeo = () => lathe('farm', [[0.02, 0.042], [-0.06, 0.046], [-0.16, 0.038], [-0.27, 0.031]]);
+const thighGeo = () => lathe('thigh', [[0.04, 0.085], [-0.06, 0.088], [-0.2, 0.078], [-0.36, 0.062], [-0.46, 0.054]], 1, 1.05);
+const calfGeo = () => lathe('calf', [[0.02, 0.055], [-0.08, 0.06], [-0.16, 0.058], [-0.3, 0.042], [-0.44, 0.033]], 1, 1.1);
 const shoulderGeo = () => geo('shoulder', () => new THREE.SphereGeometry(0.062, 14, 10));
 const limb = (r: number, l: number) => geo(`limb${r}-${l}`, () => new THREE.CapsuleGeometry(r, l, 6, 14));
 const shoeGeo = () => geo('shoe', () => { const g = new THREE.CapsuleGeometry(0.048, 0.17, 4, 10); g.rotateX(Math.PI / 2); g.scale(1.05, 0.75, 1); return g; });
@@ -212,7 +228,7 @@ export function buildRig(look: RigLook): Rig {
   const pelvis = mesh(geo('pelvis', () => { const g = new THREE.CapsuleGeometry(0.13, 0.12, 4, 12); g.rotateZ(Math.PI / 2); g.scale(1, 1, 0.8); return g; }), trousers, 0, 0, 0);
   hips.add(pelvis);
   const spine = new THREE.Bone(); spine.position.y = 0.08; hips.add(spine);
-  spine.add(mesh(torsoGeo(), shirt, 0, 0.22, 0));
+  spine.add(mesh(torsoGeo(), shirt, 0, 0, 0));
   if (!umpire) {
     // side panels / chest trim in secondary colour, collar
     spine.add(mesh(box(0.3, 0.035, 0.02), second, 0, 0.36, 0.118, false));
@@ -233,6 +249,8 @@ export function buildRig(look: RigLook): Rig {
   head.add(mesh(cyl(0.048, 0.056, 0.11, 12), skin, 0, 0.03, 0));
   const skull = mesh(geo('skull', () => { const g = new THREE.SphereGeometry(0.105, 18, 14); g.scale(0.92, 1.05, 1); return g; }), skin, 0, 0.17, 0.01);
   head.add(skull);
+  head.add(mesh(geo('jaw', () => { const g = new THREE.SphereGeometry(0.075, 14, 10); g.scale(1, 0.7, 1.05); return g; }), skin, 0, 0.115, 0.03));
+  for (const ex of [-1, 1]) head.add(mesh(geo('ear', () => { const g = new THREE.SphereGeometry(0.022, 8, 6); g.scale(0.5, 1, 0.8); return g; }), skin, ex * 0.098, 0.165, 0.0, false));
   head.add(mesh(geo('nose', () => { const g = new THREE.ConeGeometry(0.018, 0.045, 6); g.rotateX(Math.PI / 2); return g; }), skin, 0, 0.16, 0.117, false));
   for (const ex of [-0.035, 0.035]) {
     head.add(mesh(geo('eye', () => new THREE.SphereGeometry(0.011, 8, 6)), dark, ex, 0.19, 0.098, false));
@@ -270,10 +288,10 @@ export function buildRig(look: RigLook): Rig {
   const arm = (side: 1 | -1) => {
     const sh = new THREE.Bone(); sh.position.set(0.2 * side, -0.02, 0); chest.add(sh);
     sh.add(mesh(shoulderGeo(), shirt, 0, 0, 0));
-    sh.add(mesh(limb(0.052, 0.12), umpire ? mat('#f2f2f2') : shirt, 0, -0.1, 0)); // sleeve
-    sh.add(mesh(limb(0.045, 0.16), skin, 0, -0.18, 0));
+    sh.add(mesh(sleeveGeo(), umpire ? mat('#f2f2f2') : shirt, 0, 0, 0)); // sleeve
+    sh.add(mesh(upperArmGeo(), skin, 0, 0, 0));
     const el = new THREE.Bone(); el.position.y = -0.3; sh.add(el);
-    el.add(mesh(limb(0.042, 0.19), look.helmet ? mat('#ffffff', { rough: 0.8 }) : skin, 0, -0.13, 0));
+    el.add(mesh(forearmGeo(), look.helmet ? mat('#ffffff', { rough: 0.8 }) : skin, 0, 0, 0));
     const hand = new THREE.Bone(); hand.position.y = -0.28; el.add(hand);
     if (look.kind === 'keeper') { hand.add(mesh(keeperGloveGeo(), mat('#f4f1ea', { rough: 0.7 }), 0, -0.035, 0)); hand.add(mesh(box(0.11, 0.03, 0.06), accent, 0, 0.02, 0, false)); }
     else if (look.helmet) { hand.add(mesh(gloveGeo(), mat('#fafafa', { rough: 0.75 }), 0, -0.03, 0)); hand.add(mesh(limb(0.047, 0.02), accent, 0, 0.02, 0, false)); }
@@ -284,9 +302,9 @@ export function buildRig(look: RigLook): Rig {
 
   const leg = (side: 1 | -1) => {
     const hip = new THREE.Bone(); hip.position.set(0.1 * side, -0.04, 0); hips.add(hip);
-    hip.add(mesh(limb(0.078, 0.27), trousers, 0, -0.22, 0));
+    hip.add(mesh(thighGeo(), trousers, 0, 0, 0));
     const knee = new THREE.Bone(); knee.position.y = -0.45; hip.add(knee);
-    knee.add(mesh(limb(0.06, 0.29), trousers, 0, -0.21, 0));
+    knee.add(mesh(calfGeo(), trousers, 0, 0, 0));
     if (look.helmet || look.kind === 'keeper') {
       const padM = mat('#fdfdfd', { rough: 0.7 });
       knee.add(mesh(padGeo(), padM, 0, -0.2, 0.045));

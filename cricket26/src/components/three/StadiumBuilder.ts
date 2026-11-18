@@ -140,6 +140,16 @@ export function buildStadium(def: StadiumDef, time: TimeOfDay, quality: Quality,
     // worn areas
     const grad = (y: number) => { const g = c.createRadialGradient(128, y, 5, 128, y, 120); g.addColorStop(0, 'rgba(150,115,70,0.5)'); g.addColorStop(1, 'rgba(150,115,70,0)'); c.fillStyle = g; c.fillRect(0, y - 140, 256, 280); };
     grad(2048 * 0.25); grad(2048 * 0.75);
+    // bowlers' footmarks and batters' guard marks
+    for (const end of [-1, 1]) {
+      const zc = 1024 + end * (CREASE_Z - 0.4) * (2048 / 24);
+      for (let k = 0; k < 40; k++) {
+        const x = 128 + (r() - 0.5) * 70 + end * 20, y = zc + (r() - 0.5) * 60;
+        c.fillStyle = `rgba(95,72,40,${0.12 + r() * 0.18})`;
+        c.beginPath(); c.ellipse(x, y, 4 + r() * 7, 6 + r() * 10, r() * 3, 0, Math.PI * 2); c.fill();
+      }
+      c.fillStyle = 'rgba(90,70,40,0.35)'; c.fillRect(124, 1024 + end * (CREASE_Z + 0.25) * (2048 / 24) - 18, 8, 36);
+    }
     noise(c, 256, 2048, 18, 9);
     // creases: pitch plane is 3.4m wide x 24m long → px per m
     const pxX = 256 / 3.4, pxZ = 2048 / 24;
@@ -281,6 +291,7 @@ export function buildStadium(def: StadiumDef, time: TimeOfDay, quality: Quality,
   };
   const P3 = (a: number, rOff: number, h: number) => { const r = R(a) + rOff; return new THREE.Vector3(Math.sin(a) * r, h, Math.cos(a) * r); };
   const tierTops: { rOff: number; h: number }[] = [];
+  const tierFronts: { r: number; h: number; wall: number }[] = [];
   for (let t = 0; t < tiers; t++) {
     for (let i = 0; i < N; i++) {
       const a0 = (i / N) * Math.PI * 2, a1 = ((i + 1) / N) * Math.PI * 2, am = (a0 + a1) / 2;
@@ -308,9 +319,56 @@ export function buildStadium(def: StadiumDef, time: TimeOfDay, quality: Quality,
       addQuad(P3(a1, backR, topH), P3(a0, backR, topH), P3(a0, backR, topH + 2.5), P3(a1, backR, topH + 2.5), standCol.clone().multiplyScalar(0.6));
     }
     tierTops.push({ rOff: tierBaseR + rowsPerTier * rowDepth, h: tierBaseH + rowsPerTier * rowRise });
+    tierFronts.push({ r: tierBaseR, h: tierBaseH, wall: t === 0 ? 1.2 : 1.6 });
     tierBaseR += rowsPerTier * rowDepth - 2.5;
     tierBaseH += rowsPerTier * rowRise + 3.2;
   }
+  // ring band helper (follows the boundary shape), facing the field
+  const band = (rOff: number, y0: number, y1: number, material: THREE.Material, repeatU: number) => {
+    const NB = 220, pos2: number[] = [], uv: number[] = [], idx: number[] = [];
+    for (let i = 0; i <= NB; i++) {
+      const a = (i / NB) * Math.PI * 2, rr = R(a) + rOff;
+      const x = Math.sin(a) * rr, z = Math.cos(a) * rr;
+      pos2.push(x, y0, z, x, y1, z); uv.push((1 - i / NB) * repeatU, 0, (1 - i / NB) * repeatU, 1);
+      if (i < NB) { const k = i * 2; idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3); }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos2, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx); g.computeVertexNormals();
+    const m = new THREE.Mesh(track(g), material);
+    m.userData.noMerge = true;
+    env.add(m);
+    return m;
+  };
+  // LED ribbon boards on the tier fascias (scrolling)
+  const ribbonTex = track(canvasTex(2048, 64, (c) => {
+    const cols = [...teamColors, '#0a1f44', '#b0102a', '#ffc72c'];
+    for (let i = 0; i < 8; i++) {
+      c.fillStyle = cols[i % cols.length] ?? '#0a1f44'; c.fillRect(i * 256, 0, 256, 64);
+      c.fillStyle = '#ffffff'; c.font = 'bold 34px Arial Black, Arial'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText(def.boards[i % def.boards.length], i * 256 + 128, 34);
+    }
+  }));
+  ribbonTex.wrapS = THREE.RepeatWrapping;
+  const ribbonMat = track(new THREE.MeshBasicMaterial({ map: ribbonTex, side: THREE.DoubleSide, toneMapped: false }));
+  const ribbons: THREE.Texture[] = [ribbonTex];
+  for (let t = 0; t < tierFronts.length; t++) {
+    const f = tierFronts[t];
+    if (def.standGap > 0 && t === 0) continue; // open grounds keep simple walls
+    band(f.r - 0.06, f.h - f.wall + 0.1, f.h - 0.1, ribbonMat, 18);
+  }
+  // hospitality boxes: glass band under the upper tier
+  if (tierFronts.length > 1) {
+    const f = tierFronts[1];
+    const winTex2 = track(canvasTex(512, 64, (c) => {
+      c.fillStyle = night ? '#2a2216' : '#1b2633'; c.fillRect(0, 0, 512, 64);
+      for (let i = 0; i < 16; i++) { c.fillStyle = night ? 'rgba(255,214,140,0.85)' : 'rgba(150,190,220,0.55)'; c.fillRect(i * 32 + 3, 6, 26, 52); }
+    }));
+    winTex2.wrapS = THREE.RepeatWrapping;
+    const glass = track(new THREE.MeshStandardMaterial({ map: winTex2, emissive: night ? '#ffffff' : '#000000', emissiveMap: night ? winTex2 : null, emissiveIntensity: 0.45, roughness: 0.15, metalness: 0.4, side: THREE.DoubleSide }));
+    band(f.r + 0.8, f.h - f.wall - 2.6, f.h - f.wall - 0.1, glass, 60);
+  }
+
   const standGeo = new THREE.BufferGeometry();
   standGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   standGeo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
@@ -594,6 +652,7 @@ export function buildStadium(def: StadiumDef, time: TimeOfDay, quality: Quality,
     updateScoreboard,
     tick: (dt, excite) => {
       clock += dt;
+      ribbonTex.offset.x = (clock * 0.01) % 1;
       const u = crowdMat.userData.shader?.uniforms;
       if (u) { u.uTime.value = clock; u.uExcite.value = excite; }
       for (const fm of flagMats) { const fu = (fm.userData.shader as { uniforms: Record<string, { value: number }> } | undefined)?.uniforms; if (fu) fu.uTime.value = clock; }

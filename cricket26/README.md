@@ -57,10 +57,20 @@ The game chooses the actual shot (cover drive, square cut, pull, hook, flick, gl
 | **Q** | Change delivery type (pace bowlers: good length, full, yorker, bouncer, in/outswinger, cutters, slower ball. Spinners: stock ball, googly, top-spinner, slider, arm ball) |
 | **E** | Pace variation (stock / quicker / slower) |
 | **T** | Bowl over / around the wicket |
+| (aim) | A pulsing crosshair marks your target and a dotted line shows the predicted flight of the ball (toggle in Settings) |
 | **F** | Field setting: Auto, Attacking, Balanced, Defensive, Death |
 | hold **Space** | Run in. **Release in the green zone** of the meter for an accurate delivery. Releasing too late (red) is an overstep, which is a no-ball |
 
 You choose your bowler at the start of each over, either by clicking or by pressing the number keys.
+
+### Batting aids (Settings)
+
+- **Pitch marker** — a ring shows where each delivery will bounce once it's bowled (default: Easy/Medium).
+- **See the bowler's plan** — during the run-up you're told the delivery type and see where the bowler is aiming (off by default).
+
+### Pause menu
+
+Resume, **Simulate** (to the end of the over, the innings, or the whole match — the AI plays both sides at high speed and every ball is still played out), Settings & controls, Quit.
 
 ### General
 
@@ -117,8 +127,8 @@ Each delivery's result is recorded through `MatchManager.record()` exactly once 
 
 ## Known simplifications
 
-- Players are stylized figures built from simple shapes and animated in code; they are not skinned meshes.
-- Shot animations come in 12 families with directional variants, rather than one animation per shot.
+- Players are procedurally modelled and skinned (one skinned mesh per material); batting uses keyframed effectors with two-bone IK for planted feet and bat grip, following the stance → trigger/backlift → stride → downswing → impact → follow-through phase model.
+- Shot animations come in 12 families; the follow-through and front-foot placement adapt to the direction you aim. A dev page (`?poselab=drive|55|f&t=0.24&cam=diag`) renders any frame of any shot.
 - Both batters always run on the same call; there are no run mix-ups between them.
 - Bowlers always bowl from the same physical end; a change of ends is shown by rotating the stadium around the pitch.
 - There's no Super Over: a tie ends as "Match Tied".
