@@ -2,7 +2,7 @@ import type { DeliveryMeta, DeliveryOutcome, Difficulty, MatchConfig, Player, Wi
 import { MatchManager, RecordResult, oversText } from './MatchManager';
 import { BallState, makeBall, stepBall, StepEvents, segmentHitsBox, sampleAt, timeAtZ } from './BallPhysics';
 import { DELIVERIES, DeliveryPlan, DeliveryType, deliveryOptions, planDelivery, Variation, deliveryLabel } from './BowlingEngine';
-import { resolveShot, ShotInput, ShotResolution, ShotDir } from './BattingEngine';
+import { resolveShot, ShotInput, ShotResolution, screenToBatterAngle } from './BattingEngine';
 import { aiChooseDelivery, aiDecideShot, aiRunThreshold, SituationCtx, AIShotDecision } from './AI';
 import { chooseFieldSet, FIELD_SETS, fielderStats, fieldPosToWorld, FielderStats, planIntercepts, POSITIONS, predictLive } from './FieldingAI';
 import { CommentaryEngine } from './CommentaryEngine';
@@ -116,12 +116,26 @@ export interface EngineListener {
 const NOOP: EngineListener = { onState() {}, onNotify() {}, onCommentary() {}, onPhase() {}, onTiming() {}, onSound() {}, onReplayAvailable() {} };
 
 export type InputAction =
-  | 'batStraight' | 'batLeg' | 'batOff' | 'batDefend' | 'batPower' | 'batLoft' | 'aimLeft' | 'aimRight' | 'footForward' | 'footBack'
-  | 'run' | 'pause' | 'replay' | 'bowlType' | 'bowlVariation' | 'bowlAction' | 'bowlLeft' | 'bowlRight' | 'bowlFuller' | 'bowlShorter' | 'skip' | 'camera';
+  | 'batStraight' | 'batLeft' | 'batRight' | 'batFineLeft' | 'batFineRight' | 'batDefend' | 'batLeave' | 'batLoft' | 'batPower'
+  | 'batSoft' | 'batSweep' | 'footFront' | 'footBack' | 'moveLeft' | 'moveRight' | 'charge' | 'retreat'
+  | 'run' | 'pause' | 'replay' | 'bowlType' | 'bowlVariation' | 'bowlAction' | 'bowlLeft' | 'bowlRight' | 'bowlFuller' | 'bowlShorter'
+  | 'bowlSide' | 'fieldPreset' | 'skip' | 'camera';
+
+export const FIELD_PRESETS = ['Auto', 'Attacking', 'Balanced', 'Defensive', 'Death'] as const;
+export type FieldPreset = typeof FIELD_PRESETS[number];
 
 export interface InputState {
   held: Set<InputAction>;
   queue: { a: InputAction; down: boolean }[];
+}
+
+function presetToSet(p: FieldPreset, spin: boolean): string {
+  switch (p) {
+    case 'Attacking': return spin ? 'spinAttack' : 'paceAttack';
+    case 'Defensive': return spin ? 'spinDefensive' : 'paceDefensive';
+    case 'Death': return spin ? 'spinDefensive' : 'paceDeath';
+    default: return spin ? 'spinBalanced' : 'paceBalanced';
+  }
 }
 
 const RUNUP_PACE = 2.3, RUNUP_SPIN = 1.25;
@@ -257,7 +271,7 @@ export class GameEngine {
     this.bowlerF = this.fielders.findIndex((f) => f.playerId === inn.currentBowlerId);
     const spin = isSpin(bowler.bowlStyle);
     const sit = this.situation();
-    this.fieldSet = chooseFieldSet({ spin, phase: sit.phase, difficulty: this.difficulty, wicketsDown: inn.wickets, rrr: sit.rrr, batterAggressive: this.striker.personality === 'aggressive' || this.striker.personality === 'power' });
+    this.fieldSet = this.userBowling && this.fieldPreset !== 'Auto' ? presetToSet(this.fieldPreset, spin) : chooseFieldSet({ spin, phase: sit.phase, difficulty: this.difficulty, wicketsDown: inn.wickets, rrr: sit.rrr, batterAggressive: this.striker.personality === 'aggressive' || this.striker.personality === 'power' });
     const names = FIELD_SETS[this.fieldSet];
     const others = this.fielders.map((_, i) => i).filter((i) => i !== this.bowlerF && i !== this.keeperF)
       .sort((a, b) => getPlayer(this.fielders[b].playerId).field - getPlayer(this.fielders[a].playerId).field);
@@ -278,7 +292,7 @@ export class GameEngine {
     const leftArm = isLeftArm(bowler.bowlStyle);
     this.runUpDur = spin ? RUNUP_SPIN : RUNUP_PACE;
     this.runUpStartZ = -STUMPS_Z - (spin ? 5.5 : 17);
-    b.homeX = leftArm ? -0.9 : 0.9; b.homeZ = this.runUpStartZ;
+    b.homeX = (leftArm ? -0.9 : 0.9) * (this.userBowling && this.aroundWicket ? -1 : 1); b.homeZ = this.runUpStartZ;
     // default user bowling choices
     const opts = deliveryOptions(bowler.bowlStyle);
     if (!opts.includes(this.bowlType)) this.bowlType = opts[0];
@@ -324,6 +338,9 @@ export class GameEngine {
     };
     this.runsDone = 0;
     this.runQueued = false;
+    this.shuffle = 0;
+    this.batterZ = BATTER_Z;
+    this.aiChargeZ = 0;
     this.chaser = -1; this.backupF = -1;
     this.holder = -1;
     this.throwInfo = null;
@@ -402,6 +419,7 @@ export class GameEngine {
     this.t += h;
     this.phaseT += h;
     this.processInput();
+    this.tickStrikerMovement(h);
     switch (this.phase) {
       case 'intro': if (this.phaseT > 6 || this.autoplay) this.setPhase('walkIn'); break;
       case 'walkIn': this.tickWalkIn(h); break;
@@ -454,10 +472,39 @@ export class GameEngine {
         const v: Variation[] = ['normal', 'quicker', 'slower'];
         this.bowlVar = v[(v.indexOf(this.bowlVar) + 1) % 3];
         this.listener.onState(this);
+      } else if (a === 'bowlSide') {
+        this.aroundWicket = !this.aroundWicket;
+        const b = this.fielders[this.bowlerF];
+        b.homeX = -b.homeX;
+        this.listener.onState(this);
+      } else if (a === 'fieldPreset') {
+        this.fieldPreset = FIELD_PRESETS[(FIELD_PRESETS.indexOf(this.fieldPreset) + 1) % FIELD_PRESETS.length];
+        const keep = { type: this.bowlType, line: this.targetLine, len: this.targetLen };
+        this.assignField();
+        this.bowlType = keep.type; this.targetLine = keep.line; this.targetLen = keep.len;
+        this.listener.onState(this);
       } else if (a === 'bowlAction' && this.phaseT > 0.3) {
         this.beginRunUp();
       }
     }
+  }
+
+  /** direction vector from the held direction keys (screen space: +x right, +y towards the bowler) */
+  heldDirection(): { sx: number; sy: number; has: boolean } {
+    let sx = 0, sy = 0;
+    if (this.held('batStraight')) sy += 1;
+    if (this.held('batLeft')) sx -= 1;
+    if (this.held('batRight')) sx += 1;
+    if (this.held('batFineLeft')) { sx -= 0.5; sy -= 0.87; }
+    if (this.held('batFineRight')) { sx += 0.5; sy -= 0.87; }
+    const has = Math.hypot(sx, sy) > 0.01;
+    return { sx, sy, has };
+  }
+
+  /** current shot angle in the batter frame for the HUD / shot */
+  heldShotAngle(): number | null {
+    const d = this.heldDirection();
+    return d.has ? screenToBatterAngle(d.sx, d.sy, this.offSign) : null;
   }
 
   private battingInput(a: InputAction) {
@@ -467,20 +514,22 @@ export class GameEngine {
       return;
     }
     if (this.phase !== 'delivery' || this.d.shot || !this.d.plan) return;
-    const dirMap: Partial<Record<InputAction, ShotDir>> = { batStraight: 'straight', batLeg: 'leg', batOff: 'off', batDefend: 'defend', batPower: 'power' };
-    const dir = dirMap[a];
-    if (!dir) return;
+    const dirKeys: InputAction[] = ['batStraight', 'batLeft', 'batRight', 'batFineLeft', 'batFineRight'];
+    const isDir = dirKeys.includes(a);
+    const kindOf: Partial<Record<InputAction, ShotInput['kind']>> = { batLoft: 'loft', batDefend: 'defend', batLeave: 'leave', batPower: 'ground' };
+    const kind = isDir ? 'ground' : kindOf[a];
+    if (!kind) return;
     const now = this.t - this.d.releaseT;
     if (this.d.pending) {
-      // merge keys pressed within the grace window
+      // merge keys pressed within the grace window (e.g. D then L = lofted off-side shot)
       const p = this.d.pending.input;
-      if (dir === 'power') p.power = true;
-      else if (p.dir === 'power') p.dir = dir;
+      if (a === 'batPower') p.power = true;
+      else if (kind === 'loft' && p.kind === 'ground') p.kind = 'loft';
+      else if (kind === 'defend' || kind === 'leave') p.kind = kind;
       return;
     }
-    const input: ShotInput = { dir, loft: false, power: dir === 'power', aim: 0, foot: 0, pressTime: now };
-    if (dir === 'defend' && this.held('batLoft')) input.dir = 'leave';
-    this.d.pending = { input, deadline: this.t + 0.07 };
+    const input: ShotInput = { kind, angle: 0, hasDir: false, power: a === 'batPower', soft: false, sweep: false, foot: 0, pressTime: now };
+    this.d.pending = { input, deadline: this.t + 0.08 };
   }
 
   private commitPending() {
@@ -488,14 +537,36 @@ export class GameEngine {
     if (!p || this.t < p.deadline) return;
     this.d.pending = null;
     const inp = p.input;
-    inp.loft = this.held('batLoft') && inp.dir !== 'defend' && inp.dir !== 'leave';
+    const dir = this.heldDirection();
+    inp.hasDir = dir.has;
+    inp.angle = dir.has ? screenToBatterAngle(dir.sx, dir.sy, this.offSign) : 0;
     inp.power = inp.power || this.held('batPower');
-    if (inp.dir === 'power') {
-      inp.dir = this.held('batOff') ? 'off' : this.held('batLeg') ? 'leg' : this.held('batStraight') ? 'straight' : 'power';
-    }
-    inp.aim = (this.held('aimLeft') ? -1 : 0) + (this.held('aimRight') ? 1 : 0);
-    inp.foot = (this.held('footForward') ? 1 : 0) + (this.held('footBack') ? -1 : 0);
+    inp.soft = this.held('batSoft');
+    inp.sweep = this.held('batSweep');
+    inp.foot = (this.held('footFront') ? 1 : 0) + (this.held('footBack') ? -1 : 0);
     this.playShot(inp, true);
+  }
+
+  fieldPreset: FieldPreset = 'Auto';
+  aroundWicket = false;
+
+  // ---- striker movement at the crease
+  shuffle = 0;          // batter frame metres, + = across towards off stump
+  batterZ = BATTER_Z;   // crease depth; smaller = charging down the pitch
+  aiChargeZ = 0;
+  private tickStrikerMovement(h: number) {
+    const ph = this.phase;
+    if (!this.userBatting) {
+      if (this.aiChargeZ && ph === 'delivery' && !this.d.shot) this.batterZ = Math.max(this.aiChargeZ, this.batterZ - 4.5 * h);
+      return;
+    }
+    if (ph !== 'ready' && ph !== 'runUp' && ph !== 'delivery') return;
+    if (this.d.shot) return; // committed to the shot
+    const os = this.offSign;
+    const lr = (this.held('moveRight') ? 1 : 0) - (this.held('moveLeft') ? 1 : 0); // screen
+    if (lr) this.shuffle = clamp(this.shuffle + lr * os * 1.9 * h, -0.8, 0.8);
+    if (this.held('charge') && ph !== 'ready') this.batterZ = Math.max(7.0, this.batterZ - 3.6 * h);
+    if (this.held('retreat')) this.batterZ = Math.min(BATTER_Z, this.batterZ + 3.6 * h);
   }
 
   private playShot(input: ShotInput, isUser: boolean) {
@@ -504,6 +575,7 @@ export class GameEngine {
       path: plan.path, bounceIndex: plan.bounceIndex, offSign: this.offSign, batter: this.striker, difficulty: this.difficulty,
       isUser, speedKmh: plan.speedKmh, spin: DELIVERIES[plan.type].spin, deliveryQuality: plan.quality,
       movement: clamp(Math.abs(plan.ball.swingAcc) / 2.4 + Math.abs(plan.ball.turnOnBounce) / 1.6, 0, 1),
+      shuffle: this.shuffle, batterZ: this.batterZ,
     });
     this.d.shot = res;
     const sa = this.actors[this.runnerFor(this.d.strikerId).a];
@@ -594,10 +666,11 @@ export class GameEngine {
     } else {
       const sp = 1.4 * h;
       const os = this.offSign;
-      if (this.held('bowlLeft') || this.held('aimLeft')) this.targetLine = clamp(this.targetLine + sp * os * 1, -1.3, 1.3);
-      if (this.held('bowlRight') || this.held('aimRight')) this.targetLine = clamp(this.targetLine - sp * os * 1, -1.3, 1.3);
-      if (this.held('bowlFuller') || this.held('footForward')) this.targetLen = clamp(this.targetLen - sp * 3, -0.5, 13);
-      if (this.held('bowlShorter') || this.held('footBack')) this.targetLen = clamp(this.targetLen + sp * 3, -0.5, 13);
+      // bowling view looks down the pitch (+z), so screen-left is world +x
+      if (this.held('bowlLeft') || this.held('moveLeft')) this.targetLine = clamp(this.targetLine + sp * os * 1, -1.3, 1.3);
+      if (this.held('bowlRight') || this.held('moveRight')) this.targetLine = clamp(this.targetLine - sp * os * 1, -1.3, 1.3);
+      if (this.held('bowlFuller') || this.held('charge')) this.targetLen = clamp(this.targetLen - sp * 3, -0.5, 13);
+      if (this.held('bowlShorter') || this.held('retreat')) this.targetLen = clamp(this.targetLen + sp * 3, -0.5, 13);
     }
   }
 
@@ -656,7 +729,7 @@ export class GameEngine {
     } else {
       req = aiChooseDelivery(bowler, this.striker, this.situation());
     }
-    const plan = planDelivery({ bowler, offSign: this.offSign, ...req });
+    const plan = planDelivery({ bowler, offSign: this.offSign, around: this.userBowling && this.aroundWicket, ...req });
     this.d.plan = plan;
     this.d.releaseT = this.t;
     this.d.noBall = plan.noBall;
@@ -672,34 +745,36 @@ export class GameEngine {
     // AI batter decision (perception happens now; no knowledge of future outcome)
     if (!this.userBatting) {
       this.d.ai = aiDecideShot(plan, this.striker, this.offSign, this.situation());
-      if (this.d.ai) this.d.ai.input.aim = this.aiAimForGap(this.d.ai.shot.theta, this.d.ai.shot.loft);
+      if (this.d.ai && this.d.ai.input.foot > 0 && DELIVERIES[plan.type].spin) this.aiChargeZ = 7.5;
+      if (this.d.ai && this.d.ai.shot.family !== 'defend' && this.d.ai.shot.family !== 'defendBack') {
+        const sh = this.d.ai.shot;
+        this.d.ai.input.angle = this.aiAimForGap(clamp(this.d.ai.input.angle, sh.range[0], sh.range[1]), sh.loft, sh.range);
+      }
     }
     this.setPhase('delivery');
     this.listener.onState(this);
   }
 
-  /** choose the aim (-1/0/1) that points the shot furthest from fielders */
-  private aiAimForGap(theta: number, loft: boolean): number {
+  /** steer an AI shot (within what the shot allows) into the biggest gap in the field */
+  private aiAimForGap(theta: number, loft: boolean, range: [number, number]): number {
     const os = this.offSign;
     const angles: number[] = [];
     this.fielders.forEach((f, i) => {
       if (i === this.keeperF) return;
       const a = this.actors[f.a];
       const dx = a.x * os, dz = BATTER_Z - a.z;
-      const dist = Math.hypot(dx, dz);
-      const deep = dist > 45;
+      const deep = Math.hypot(dx, dz) > 45;
       if (loft ? !deep : deep) return;
       angles.push((Math.atan2(dx, dz) * 180) / Math.PI);
     });
-    let best = 0, bestGap = -1;
-    for (const aim of [0, -1, 1]) {
-      const th = theta + aim * 18 * os * os; // batter frame
+    let best = theta, bestGap = -1;
+    for (let th = range[0]; th <= range[1]; th += 4) {
       let gap = 180;
       for (const fa of angles) { let dd = Math.abs(th - fa); if (dd > 180) dd = 360 - dd; gap = Math.min(gap, dd); }
-      if (gap > bestGap + (aim === 0 ? 0 : 3)) { bestGap = gap; best = aim; }
+      const score = gap - Math.abs(th - theta) * 0.15;
+      if (score > bestGap) { bestGap = score; best = th; }
     }
-    // aim is screen-relative; convert batter-frame offset back
-    return best * os;
+    return best + gauss() * 4;
   }
 
   // ---------------------------------------------------------------- ball physics & collisions
@@ -769,8 +844,8 @@ export class GameEngine {
     // pad (only when bat missed / no shot)
     const noBat = !s || s.contact === 'miss' || s.contact === 'leave';
     if (noBat && !d.hitPad) {
-      const fz = s && s.contact === 'miss' ? s.zContact : 9.0;
-      const lo = -0.24, hi = 0.12;
+      const fz = s && s.contact === 'miss' ? s.zContact : this.batterZ - 0.35;
+      const lo = -0.24 + this.shuffle, hi = 0.12 + this.shuffle;
       const minX = Math.min(lo * os, hi * os), maxX = Math.max(lo * os, hi * os);
       if (segmentHitsBox(px, py, pz, b.x, b.y, b.z, minX - BALL_R, maxX + BALL_R, 0, 0.85, fz - 0.2, fz + 0.55)) {
         this.onPadHit();
@@ -785,7 +860,7 @@ export class GameEngine {
     if (!d.passedBatter && b.z > 9.75) {
       d.passedBatter = true;
       if (noBat) {
-        const lineOff = b.x * os;
+        const lineOff = b.x * os - this.shuffle * 0.8; // the wide line moves with the batter
         if (lineOff > 0.92 || lineOff < -0.62 || b.y > 1.9) { d.wide = true; }
         else if (s && s.contact === 'miss') { d.meta.beaten = true; }
         if (!s || s.contact === 'leave') d.meta.leave = true;
@@ -1671,7 +1746,7 @@ export class GameEngine {
         const sa = this.actors[s.a], na = this.actors[n.a];
         sa.rotY = this.offSign > 0 ? Math.PI / 2 : -Math.PI / 2;
         if (sa.anim !== 'swing') this.setAnim(sa, 'stance');
-        if (this.d.shot?.advance && ph === 'delivery') { s.z = Math.max(7.6, s.z - h * 4.5); sa.z = s.z; }
+        s.x = (-0.12 + this.shuffle) * this.offSign; s.z = this.batterZ; sa.x = s.x; sa.z = s.z;
         na.rotY = 0;
         if (ph === 'runUp' && this.phaseT > this.runUpDur * 0.5) {
           n.z = Math.min(-STUMPS_Z + 1.4, n.z + h * 1.2); na.z = n.z; this.setAnim(na, 'walkBat'); na.moveSpeed = 1.2;

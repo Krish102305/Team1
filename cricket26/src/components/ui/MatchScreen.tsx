@@ -159,6 +159,10 @@ function BowlPanel({ e }: { e: GameEngine }) {
         <div><div className="t">Delivery [{keyLabel(k.bowlType[0])}]</div><div className="v">{e.deliveryOptionsForUser().find((d) => d.id === e.bowlType)?.name ?? DELIVERIES[e.bowlType].name}</div></div>
         <div><div className="t">Pace [{keyLabel(k.bowlVariation[0])}]</div><div className="v">{e.bowlVar === 'normal' ? 'Stock' : e.bowlVar === 'quicker' ? 'Quicker' : 'Slower'}</div></div>
       </div>
+      <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
+        <div><div className="t">Side [{keyLabel(k.bowlSide[0])}]</div><div className="v" style={{ fontSize: 15 }}>{e.aroundWicket ? 'Around the wicket' : 'Over the wicket'}</div></div>
+        <div><div className="t">Field [{keyLabel(k.fieldPreset[0])}]</div><div className="v" style={{ fontSize: 15 }}>{e.fieldPreset}</div></div>
+      </div>
       <div className="t">Length {e.targetLen.toFixed(1)} m · Line {e.targetLine > 0.05 ? `${e.targetLine.toFixed(2)} m off` : e.targetLine < -0.05 ? `${(-e.targetLine).toFixed(2)} m leg` : 'stumps'}</div>
       <div className="meter">
         <div className="zone" style={{ left: '72%', width: '14%' }} />
@@ -180,22 +184,89 @@ function Hints({ e }: { e: GameEngine }) {
   const K = (a: keyof typeof k) => <span className="kbd">{keyLabel(k[a][0])}</span>;
   if (e.userRole === 'bat') return (
     <div className="hints">
-      <b>BATTING</b> — time your shot as the ball arrives<br />
-      {K('batOff')} off side {K('batStraight')} straight {K('batLeg')} leg side {K('batDefend')} defend<br />
-      hold {K('batLoft')} lofted · {K('batPower')} power · {K('aimLeft')}{K('aimRight')} aim<br />
-      hold {K('footForward')} front foot / dance · {K('footBack')} back foot<br />
-      {K('run')} run / another · {K('batDefend')} turn back · {K('replay')} replay · {K('camera')} cam · {K('pause')} pause
+      <b>BATTING</b> — hit as the ball arrives<br />
+      Direction: {K('batLeft')}{K('batStraight')}{K('batRight')} + fine {K('batFineLeft')}{K('batFineRight')} (combine for diagonals)<br />
+      Press a direction = ground shot · {K('batLoft')} loft · {K('batPower')} power<br />
+      {K('batDefend')} defend · {K('batLeave')} leave · hold {K('batSoft')} soft · hold {K('batSweep')} sweep<br />
+      Feet: hold {K('footFront')} front · {K('footBack')} back · {K('moveLeft')}{K('moveRight')} shuffle · {K('charge')} charge<br />
+      {K('run')} run · {K('batDefend')} turn back · {K('replay')} replay · {K('pause')} pause
     </div>
   );
   if (e.userRole === 'bowl') return (
     <div className="hints">
-      <b>BOWLING</b> — aim the marker with mouse or {K('bowlLeft')}{K('bowlRight')}{K('bowlFuller')}{K('bowlShorter')}<br />
-      {K('bowlType')} delivery type · {K('bowlVariation')} pace variation<br />
+      <b>BOWLING</b> — aim with mouse or {K('bowlLeft')}{K('bowlRight')}{K('bowlFuller')}{K('bowlShorter')}<br />
+      {K('bowlType')} delivery · {K('bowlVariation')} pace · {K('bowlSide')} over/around · {K('fieldPreset')} field<br />
       hold {K('bowlAction')} to run in → release in green zone<br />
       {K('replay')} replay · {K('pause')} pause · {K('skip')} skip
     </div>
   );
   return null;
+}
+
+/** live shot selector: aimed direction on a mini field, footwork, modifiers and crease position */
+function ShotSelector({ e }: { e: GameEngine }) {
+  const ph = useGame((s) => s.phase);
+  useHud();
+  const arrow = useRef<SVGGElement>(null);
+  const foot = useRef<HTMLSpanElement>(null);
+  const mods = useRef<HTMLSpanElement>(null);
+  const crease = useRef<HTMLDivElement>(null);
+  const shot = useRef<HTMLDivElement>(null);
+  const visible = e.userRole === 'bat' && (ph === 'ready' || ph === 'runUp' || ph === 'delivery' || ph === 'live');
+  useEffect(() => {
+    if (!visible) return;
+    let raf = 0;
+    const loop = () => {
+      const d = e.heldDirection();
+      if (arrow.current) {
+        const deg = d.has ? (Math.atan2(d.sx, d.sy) * 180) / Math.PI : 0;
+        arrow.current.setAttribute('transform', `rotate(${deg} 60 62)`);
+        arrow.current.style.opacity = d.has ? '1' : '0.25';
+      }
+      if (foot.current) {
+        const f = (e.held('footFront') ? 1 : 0) - (e.held('footBack') ? 1 : 0);
+        foot.current.textContent = f > 0 ? 'FRONT FOOT' : f < 0 ? 'BACK FOOT' : 'AUTO FOOT';
+        foot.current.style.color = f ? 'var(--gold)' : 'var(--muted)';
+      }
+      if (mods.current) {
+        const m = [e.held('batSoft') ? 'SOFT' : '', e.held('batSweep') ? 'SWEEP' : '', e.held('batPower') ? 'POWER' : ''].filter(Boolean);
+        mods.current.textContent = m.length ? m.join(' · ') : '—';
+      }
+      if (crease.current) {
+        const xScreen = e.shuffle * e.offSign; // world/screen
+        crease.current.style.left = `${50 + xScreen * 55}%`;
+        crease.current.style.top = `${Math.max(0, (9.35 - e.batterZ) / 2.35) * -26 + 4}px`;
+      }
+      if (shot.current) {
+        const s2 = e.d.shot;
+        shot.current.textContent = s2 && s2.shot.family !== 'leave' ? `${s2.shot.name}${s2.timing ? ' · ' + s2.timing : ''}` : e.batterZ < 8.6 ? 'Down the track!' : '';
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [e, visible]);
+  if (!visible) return null;
+  const right = e.offSign > 0 ? 'OFF' : 'LEG', left = e.offSign > 0 ? 'LEG' : 'OFF';
+  return (
+    <div className="shot-sel">
+      <svg width="120" height="78" viewBox="0 0 120 78">
+        <ellipse cx="60" cy="62" rx="56" ry="56" fill="rgba(46,125,50,0.35)" stroke="rgba(255,255,255,0.35)" />
+        <ellipse cx="60" cy="62" rx="26" ry="26" fill="none" stroke="rgba(255,255,255,0.25)" strokeDasharray="2 3" />
+        <rect x="57" y="40" width="6" height="22" fill="#c9b27c" />
+        <text x="8" y="70" fill="#fff" fontSize="10" fontWeight="800">{left}</text>
+        <text x="94" y="70" fill="#fff" fontSize="10" fontWeight="800">{right}</text>
+        <g ref={arrow}><line x1="60" y1="62" x2="60" y2="14" stroke="#ffc72c" strokeWidth="4" strokeLinecap="round" /><polygon points="52,18 60,4 68,18" fill="#ffc72c" /></g>
+        <circle cx="60" cy="62" r="4" fill="#fff" />
+      </svg>
+      <div className="sel-info">
+        <span ref={foot} className="sel-foot">AUTO FOOT</span>
+        <span ref={mods} className="sel-mods">—</span>
+        <div className="sel-crease"><div ref={crease} className="sel-dot" /></div>
+        <div ref={shot} className="sel-shot" />
+      </div>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------- overlays
@@ -406,6 +477,7 @@ export function MatchScreen() {
         <RunHint e={engine} />
         <BowlPanel e={engine} />
         <Hints e={engine} />
+        <ShotSelector e={engine} />
         <ReplayBanner e={engine} />
         {replayAvailable && !engine.replay.active && (phase === 'dead' || phase === 'ready' || phase === 'selectBowler') && <div className="replay-hint">▶ Press V for replay</div>}
         {phase === 'intro' && <IntroCard e={engine} />}

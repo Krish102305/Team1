@@ -86,6 +86,8 @@ export interface DeliveryRequest {
   /** extra scatter multiplier from difficulty */
   scatterMul: number;
   noBall: boolean;
+  /** bowl from around the wicket */
+  around?: boolean;
 }
 
 export interface DeliveryPlan {
@@ -153,7 +155,7 @@ export function planDelivery(req: DeliveryRequest): DeliveryPlan {
   if (!spin && def.swing === 0 && def.seam === 0) seam += gauss() * 0.25; // natural seam movement
   if (spin) seam *= 0.85 + rand() * 0.3;
 
-  const releaseX = (leftArm ? -0.32 : 0.32) * (spin ? 0.85 : 1);
+  const releaseX = (leftArm ? -0.32 : 0.32) * (spin ? 0.85 : 1) * (req.around ? -1.6 : 1);
   const release = { x: releaseX, y: spin ? 2.05 : 2.2, z: -STUMPS_Z + 0.6 };
 
   const ball = makeBall();

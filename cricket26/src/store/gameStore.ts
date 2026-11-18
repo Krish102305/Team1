@@ -16,33 +16,49 @@ export interface Settings {
   cameraSmoothing: number;
   difficulty: Difficulty;
   showHints: boolean;
+  pitchMarker: 'auto' | 'on' | 'off';
   keys: Record<InputAction, string[]>;
 }
 
 export const DEFAULT_KEYS: Record<InputAction, string[]> = {
-  batStraight: ['KeyW'], batLeg: ['KeyA'], batOff: ['KeyD'], batDefend: ['KeyS'], batPower: ['Space'], batLoft: ['ShiftLeft', 'ShiftRight'],
-  aimLeft: ['ArrowLeft'], aimRight: ['ArrowRight'], footForward: ['ArrowUp'], footBack: ['ArrowDown'], run: ['KeyR'],
-  pause: ['Escape'], replay: ['KeyV'], bowlType: ['KeyQ'], bowlVariation: ['KeyE'], bowlAction: ['Space'],
-  bowlLeft: ['KeyA'], bowlRight: ['KeyD'], bowlFuller: ['KeyW'], bowlShorter: ['KeyS'], skip: ['Enter'], camera: ['KeyC'],
+  batStraight: ['KeyW'], batLeft: ['KeyA'], batRight: ['KeyD'], batFineLeft: ['KeyQ'], batFineRight: ['KeyE'],
+  batDefend: ['KeyS'], batLeave: ['KeyZ'], batLoft: ['KeyL'], batPower: ['Space'], batSoft: ['ShiftLeft', 'ShiftRight'], batSweep: ['KeyX'],
+  footFront: ['KeyJ'], footBack: ['KeyK'], moveLeft: ['ArrowLeft'], moveRight: ['ArrowRight'], charge: ['ArrowUp'], retreat: ['ArrowDown'],
+  run: ['KeyR'], pause: ['Escape'], replay: ['KeyV'],
+  bowlType: ['KeyQ'], bowlVariation: ['KeyE'], bowlAction: ['Space'], bowlLeft: ['KeyA'], bowlRight: ['KeyD'], bowlFuller: ['KeyW'], bowlShorter: ['KeyS'],
+  bowlSide: ['KeyT'], fieldPreset: ['KeyF'], skip: ['Enter'], camera: ['KeyC'],
 };
+
+export const ACTION_GROUPS: { title: string; actions: InputAction[] }[] = [
+  { title: 'Batting — shot direction (screen-relative)', actions: ['batStraight', 'batLeft', 'batRight', 'batFineLeft', 'batFineRight'] },
+  { title: 'Batting — shot type', actions: ['batLoft', 'batPower', 'batDefend', 'batLeave', 'batSoft', 'batSweep'] },
+  { title: 'Batting — footwork & movement', actions: ['footFront', 'footBack', 'moveLeft', 'moveRight', 'charge', 'retreat', 'run'] },
+  { title: 'Bowling', actions: ['bowlAction', 'bowlType', 'bowlVariation', 'bowlLeft', 'bowlRight', 'bowlFuller', 'bowlShorter', 'bowlSide', 'fieldPreset'] },
+  { title: 'General', actions: ['pause', 'replay', 'camera', 'skip'] },
+];
 
 export const ACTION_LABELS: Record<InputAction, string> = {
-  batStraight: 'Bat: straight / on-side shot', batLeg: 'Bat: leg-side shot', batOff: 'Bat: off-side shot', batDefend: 'Bat: defend / cancel run',
-  batPower: 'Bat: power shot', batLoft: 'Bat: lofted modifier (hold)', aimLeft: 'Aim left', aimRight: 'Aim right',
-  footForward: 'Front foot / advance (hold)', footBack: 'Back foot (hold)', run: 'Run / call another run', pause: 'Pause',
-  replay: 'Replay last highlight', bowlType: 'Bowl: change delivery type', bowlVariation: 'Bowl: change pace variation',
-  bowlAction: 'Bowl: hold to run in, release to bowl', bowlLeft: 'Bowl: move target left', bowlRight: 'Bowl: move target right',
-  bowlFuller: 'Bowl: fuller length', bowlShorter: 'Bowl: shorter length', skip: 'Skip / continue', camera: 'Cycle camera',
+  batStraight: 'Hit straight (combine with left/right for diagonals)', batLeft: 'Hit to screen-left', batRight: 'Hit to screen-right',
+  batFineLeft: 'Hit fine, behind square (screen-left)', batFineRight: 'Hit fine, behind square (screen-right)',
+  batDefend: 'Defend (also: turn back while running)', batLeave: 'Leave the ball', batLoft: 'Lofted shot (in held direction)',
+  batPower: 'Power shot (in held direction)', batSoft: 'Soft hands — push for a single (hold)', batSweep: 'Sweep / scoop / reverse family (hold)',
+  footFront: 'Front foot (hold)', footBack: 'Back foot (hold)', moveLeft: 'Shuffle left at the crease', moveRight: 'Shuffle right at the crease',
+  charge: 'Charge down the pitch (hold)', retreat: 'Back into the crease', run: 'Run / call another run',
+  pause: 'Pause', replay: 'Replay last highlight', bowlType: 'Change delivery type', bowlVariation: 'Change pace variation',
+  bowlAction: 'Hold to run in, release to bowl', bowlLeft: 'Target left', bowlRight: 'Target right', bowlFuller: 'Fuller length',
+  bowlShorter: 'Shorter length', bowlSide: 'Over / around the wicket', fieldPreset: 'Change field setting', skip: 'Skip / continue', camera: 'Cycle camera',
 };
 
-const SETTINGS_KEY = 'cricket26.settings.v1';
+const SETTINGS_KEY = 'cricket26.settings.v2';
 function loadSettings(): Settings {
-  const def: Settings = { quality: 'medium', volume: 0.7, commentaryVolume: 0.6, speech: false, camera: 'broadcast', cameraSmoothing: 0.6, difficulty: 'medium', showHints: true, keys: DEFAULT_KEYS };
+  const def: Settings = { quality: 'medium', volume: 0.7, commentaryVolume: 0.6, speech: false, camera: 'broadcast', cameraSmoothing: 0.6, difficulty: 'medium', showHints: true, pitchMarker: 'auto', keys: DEFAULT_KEYS };
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return def;
     const s = JSON.parse(raw);
-    return { ...def, ...s, keys: { ...DEFAULT_KEYS, ...(s.keys ?? {}) } };
+    const keys = { ...DEFAULT_KEYS };
+    for (const k of Object.keys(DEFAULT_KEYS) as InputAction[]) if (Array.isArray(s.keys?.[k])) keys[k] = s.keys[k];
+    return { ...def, ...s, keys };
   } catch { return def; }
 }
 function saveSettings(s: Settings) { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch { /* ignore */ } }

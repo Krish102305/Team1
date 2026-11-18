@@ -1,7 +1,7 @@
 import type { Difficulty, Personality, Player } from './types';
 import { DELIVERIES, DeliveryType, deliveryOptions, Variation, DeliveryPlan } from './BowlingEngine';
 import { isSpin } from '../data/teams';
-import { chooseShot, contactZ, readBall, ShotInput, suitability, ShotDir, timingWindows } from './BattingEngine';
+import { chooseShot, contactZ, readBall, ShotInput, suitability, timingWindows } from './BattingEngine';
 import { SHOTS, ShotDef } from '../data/shots';
 import { STUMP_HALF_W, BALL_R, STUMPS_Z, SWING_LEAD } from './constants';
 import { chance, clamp, gauss, rand, randRange, weightedPick } from '../utils/random';
@@ -98,42 +98,35 @@ export function aiDecideShot(plan: DeliveryPlan, batter: Player, offSign: number
   if (!hittingStumps && perceived.lineOff > 0.5 && aggr < 0.5 && chance(0.55 - aggr * 0.5)) return null;
   if (!hittingStumps && perceived.height > 1.7 && chance(0.6)) return null;
 
-  // candidate shots
-  const cands: { dir: ShotDir; loft: boolean; power: boolean; foot: number; soft?: boolean }[] = [
-    { dir: 'defend', loft: false, power: false, foot: 0 },
-    { dir: 'off', loft: false, power: false, foot: 0, soft: true },
-    { dir: 'leg', loft: false, power: false, foot: 0, soft: true },
-    { dir: 'straight', loft: false, power: false, foot: 0, soft: true },
-    { dir: 'off', loft: false, power: false, foot: 0 },
-    { dir: 'straight', loft: false, power: false, foot: 0 },
-    { dir: 'leg', loft: false, power: false, foot: 0 },
-    { dir: 'off', loft: true, power: false, foot: 0 },
-    { dir: 'straight', loft: true, power: true, foot: 0 },
-    { dir: 'leg', loft: true, power: true, foot: 0 },
-    { dir: 'leg', loft: false, power: false, foot: -1 },
-    { dir: 'off', loft: false, power: false, foot: -1 },
-  ];
-  if (spin && aggr > 0.5) cands.push({ dir: 'straight', loft: true, power: true, foot: 1 });
-  if (batter.personality === 'power' || aggr > 0.7) cands.push({ dir: 'leg', loft: true, power: true, foot: -1 });
+  // candidate shots: (kind, direction, modifiers) — the same inputs a human can give
+  type Cand = ShotInput;
+  const mk = (kind: ShotInput['kind'], angle: number, o: Partial<ShotInput> = {}): Cand =>
+    ({ kind, angle, hasDir: true, power: false, soft: false, sweep: false, foot: 0, pressTime: 0, ...o });
+  const cands: Cand[] = [mk('defend', 0)];
+  for (const a of [-60, 0, 60]) cands.push(mk('ground', a, { soft: true }));
+  for (const a of [-140, -90, -50, -20, 0, 25, 55, 90, 135]) cands.push(mk('ground', a));
+  for (const a of [-70, -30, 0, 40]) cands.push(mk('loft', a, { power: aggr > 0.65 }));
+  if (aggr > 0.6) cands.push(mk('loft', 90), mk('loft', -150));
+  if (spin) cands.push(mk('ground', -90, { sweep: true }), mk('ground', 100, { sweep: true }));
+  if (spin && aggr > 0.5) cands.push(mk('loft', -60, { sweep: true }), mk('loft', 0, { foot: 1 }));
 
   let best = cands[0], bestScore = -1e9, bestShot: ShotDef = SHOTS.forwardDefense;
   const wWicket = 32 - 26 * aggr; // value of a wicket in runs
   const pq = clamp(plan.quality + gauss() * 0.1 * noise, 0, 1);
   for (const c of cands) {
-    const inp: ShotInput = { ...c, aim: 0, pressTime: 0 };
-    const shot = chooseShot(inp, perceived);
+    const shot = chooseShot(c, perceived);
     const suit = suitability(shot, perceived);
     const defensive = shot.family === 'defend' || shot.family === 'defendBack';
     let er: number, risk: number;
     if (defensive) { er = 0.25; risk = 0.006 + (1 - suit) * 0.04; }
     else if (c.soft) { er = (0.45 + 0.4 * suit) * (1 - 0.3 * pq); risk = 0.006 + (1 - suit) * 0.06 + pq * 0.01; }
-    else if (shot.loft) { er = (0.8 + 2.0 * suit) * (1 - 0.35 * pq); risk = 0.05 + (1 - suit) * 0.3 + shot.risk * 0.12 + pq * 0.06; }
+    else if (shot.loft) { er = (0.8 + 2.0 * suit) * (1 - 0.35 * pq) * (c.power ? 1.1 : 1); risk = 0.05 + (1 - suit) * 0.3 + shot.risk * 0.12 + pq * 0.06; }
     else { er = (0.45 + 1.0 * suit) * (1 - 0.45 * pq); risk = 0.008 + (1 - suit) * 0.1 + shot.risk * 0.03 + pq * 0.015; }
     if (s.freeHit) risk *= 0.15;
     const score = er - risk * wWicket + gauss() * 0.12;
     if (score > bestScore) { bestScore = score; best = c; bestShot = shot; }
   }
-  const zc = contactZ(bestShot, { ...best, aim: 0, pressTime: 0 }, spin).z;
+  const zc = contactZ(bestShot, best, 9.35).z;
   const tArr = timeAtZ(plan.path, zc);
   if (tArr === null) return null;
   const w = timingWindows({ batter, difficulty: s.difficulty, isUser: false }, bestShot);
@@ -141,8 +134,7 @@ export function aiDecideShot(plan: DeliveryPlan, batter: Player, offSign: number
   sd = Math.max(sd, w.perfect * 0.5);
   const err = gauss() * sd + (plan.type === 'slower' ? randRange(-0.05, 0) : 0);
   const pressTime = Math.max(0.12, tArr - SWING_LEAD + err);
-  const aim = chance(0.3) ? (chance(0.5) ? -1 : 1) : 0;
-  return { input: { ...best, aim, pressTime }, shot: bestShot };
+  return { input: { ...best, pressTime }, shot: bestShot };
 }
 
 /** Running decision used by AI batters (and as a safety hint for the user). */

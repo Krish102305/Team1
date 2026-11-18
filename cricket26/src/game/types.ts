@@ -18,6 +18,7 @@ export interface Player {
   speed: number;
   overall: number;
   personality: Personality;
+  number?: number;
 }
 
 export interface Team {

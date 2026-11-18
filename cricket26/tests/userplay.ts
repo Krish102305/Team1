@@ -25,17 +25,19 @@ while (e.phase !== 'matchOver' && guard++ < 2_000_000) {
       lastDelivery = e.d.id;
       const r = readBall(e.d.plan.path, e.d.plan.bounceIndex, 9.0, e.offSign, e.d.plan.speedKmh, false);
       const len = r.pitchDist ?? -1;
-      const key: InputAction = r.lineOff > 0.25 ? 'batOff' : r.lineOff < -0.1 ? 'batLeg' : len > 7 ? 'batLeg' : 'batStraight';
+      const offKey: InputAction = e.offSign > 0 ? 'batRight' : 'batLeft', legKey: InputAction = e.offSign > 0 ? 'batLeft' : 'batRight';
+      const key: InputAction = r.lineOff > 0.25 ? offKey : r.lineOff < -0.1 ? legKey : len > 7 ? legKey : 'batStraight';
       const zc = len > 7 ? 9.45 : 8.8;
       const ideal = idealPressTime(e.d.plan.path, zc) ?? 0.3;
       plan = { at: e.d.releaseT + ideal + gauss() * errSd, key, loft: Math.random() < 0.3 };
       runPressed = false;
     }
     if (plan && e.phase === 'delivery' && e.t >= plan.at) {
+      press(plan.key);
       if (plan.loft) press('batLoft');
-      press(plan.key); upAt = e.t + 0.12; plan = null;
+      upAt = e.t + 0.12; plan = null;
     }
-    if (upAt > 0 && e.t >= upAt) { release('batStraight'); release('batOff'); release('batLeg'); release('batLoft'); upAt = -1; }
+    if (upAt > 0 && e.t >= upAt) { release('batStraight'); release('batLeft'); release('batRight'); release('batLoft'); upAt = -1; }
     if (e.phase === 'live' && !runPressed && e.d.liveT > 0.3 && (e.runHint === 'safe')) { press('run'); release('run'); runPressed = true; }
     if (e.phase === 'live' && runPressed && e.runsDone >= 1 && e.runHint === 'safe' && !e.runQueued && e.runners.some((r) => r.running) === false && e.d.liveT < 6) { /* idle */ }
   }

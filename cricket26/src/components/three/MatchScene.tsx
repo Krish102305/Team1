@@ -226,11 +226,14 @@ function World({ engine, def, quality }: { engine: GameEngine; def: StadiumDef; 
     // where the delivery pitched (fades out)
     const plan = engine.d.plan;
     const bm = bounceMark.material as THREE.MeshBasicMaterial;
+    const pm = settings.pitchMarker;
+    const showPreview = engine.userRole === 'bat' && (pm === 'on' || (pm === 'auto' && (engine.config.difficulty === 'easy' || engine.config.difficulty === 'medium')));
     if (!frame && plan && plan.bounceIndex >= 0 && (engine.phase === 'delivery' || engine.phase === 'live' || engine.phase === 'dead')) {
       const pb = plan.path[plan.bounceIndex];
       const since = engine.t - engine.d.releaseT - pb.t;
       bounceMark.position.set(pb.x, 0.02, pb.z);
-      bm.opacity = since > 0 ? Math.max(0, 0.75 - since * 0.35) : 0;
+      if (since < 0 && showPreview) { bm.color.set('#ffd400'); bm.opacity = 0.9; bounceMark.scale.setScalar(1.6); }
+      else { bm.color.set('#ffffff'); bounceMark.scale.setScalar(1); bm.opacity = since > 0 ? Math.max(0, 0.75 - since * 0.35) : 0; }
     } else bm.opacity = 0;
 
     // bowling target marker

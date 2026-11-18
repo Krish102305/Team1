@@ -1,19 +1,27 @@
-import { SHOTS, ShotDef } from '../data/shots';
+import { SHOTS, ShotDef, ATTACK_SHOTS } from '../data/shots';
 import type { Difficulty, Player } from './types';
 import { PathSample, sampleAt, timeAtZ, Vec3 } from './BallPhysics';
 import { STUMPS_Z, SWING_LEAD } from './constants';
 import { chance, clamp, gauss, rand, randRange } from '../utils/random';
 
-export type ShotDir = 'straight' | 'leg' | 'off' | 'defend' | 'power' | 'leave';
+export type ShotKind = 'ground' | 'loft' | 'defend' | 'leave';
 
 export interface ShotInput {
-  dir: ShotDir;
-  loft: boolean;
+  kind: ShotKind;
+  /** desired direction in the batter frame, degrees (0 straight, + off side, ±180 behind) */
+  angle: number;
+  hasDir: boolean;
   power: boolean;
-  aim: number;   // -1 screen-left, 0, +1 screen-right
-  foot: number;  // +1 forward/advance, -1 back, 0 neutral
-  soft?: boolean; // soft hands push into a gap
+  soft: boolean;
+  sweep: boolean;
+  foot: number;  // +1 front foot, -1 back foot, 0 automatic
   pressTime: number; // seconds since release
+}
+
+/** Screen-space direction keys → batter-frame angle. sx: +right, sy: +towards bowler. */
+export function screenToBatterAngle(sx: number, sy: number, offSign: number): number {
+  const screenDeg = (Math.atan2(sx, sy) * 180) / Math.PI;
+  return screenDeg * offSign;
 }
 
 export type ContactKind = 'clean' | 'edge' | 'topEdge' | 'insideEdge' | 'miss' | 'leave';
@@ -40,6 +48,10 @@ export interface ShotContext {
   deliveryQuality: number;
   /** 0..1 how much the ball moved late (swing/seam/turn) */
   movement: number;
+  /** batter's lateral movement at the crease, batter frame metres (+ = across towards off) */
+  shuffle: number;
+  /** batter's crease depth (z). 9.35 = normal guard, smaller = down the track */
+  batterZ: number;
 }
 
 export interface ShotResolution {
@@ -57,48 +69,42 @@ export interface ShotResolution {
   read: BallRead;
 }
 
-export function readBall(path: PathSample[], bounceIndex: number, zc: number, offSign: number, speedKmh: number, spin: boolean): BallRead {
+export function readBall(path: PathSample[], bounceIndex: number, zc: number, offSign: number, speedKmh: number, spin: boolean, shuffle = 0, advanceBy = 0): BallRead {
   const t = timeAtZ(path, zc);
   const s = t !== null ? sampleAt(path, t) : path[path.length - 1];
   const b = bounceIndex >= 0 ? path[bounceIndex] : null;
-  const pitchDist = b && b.z < zc + 0.3 ? STUMPS_Z - b.z : null;
-  return { pitchDist, lineOff: s.x * offSign, height: s.y, speedKmh, spin };
+  // length is judged from where the batter is standing (charging makes a good length ball full)
+  const pitchDist = b && b.z < zc + 0.3 ? STUMPS_Z - b.z - advanceBy : null;
+  return { pitchDist, lineOff: s.x * offSign - shuffle, height: s.y, speedKmh, spin };
 }
 
-/** Choose the concrete shot from directional input + the ball being faced. */
+const angDist = (a: number, lo: number, hi: number) => {
+  if (a >= lo && a <= hi) return 0;
+  const d1 = Math.abs(a - lo), d2 = Math.abs(a - hi);
+  return Math.min(d1, d2, Math.abs(a + 360 - hi), Math.abs(a - 360 - lo));
+};
+
+/** Choose the concrete shot from direction + modifiers + the ball being faced. */
 export function chooseShot(input: ShotInput, r: BallRead): ShotDef {
   const len = r.pitchDist ?? -1;
-  const short = len > 7.2;
-  const bouncer = len > 9.5 && r.height > 1.15;
-  const full = len < 4.2;
-  const { dir, loft, power, foot } = input;
-  if (dir === 'leave') return SHOTS.leave;
-  if (dir === 'defend') return (foot < 0 || (short && foot <= 0)) ? SHOTS.backDefense : SHOTS.forwardDefense;
-  if (dir === 'off') {
-    if (foot < 0 && !short && full && r.spin) return SHOTS.reverseSweep;
-    if (foot < 0) return loft ? SHOTS.upperCut : SHOTS.lateCut;
-    if (short || (len > 6 && r.lineOff > 0.35)) return loft ? SHOTS.upperCut : SHOTS.squareCut;
-    if (loft) return SHOTS.loftedCover;
-    return SHOTS.coverDrive;
+  if (input.kind === 'leave') return SHOTS.leave;
+  if (input.kind === 'defend') return input.foot < 0 || (input.foot === 0 && len > 7) ? SHOTS.backDefense : SHOTS.forwardDefense;
+  const loft = input.kind === 'loft';
+  const theta = input.hasDir ? input.angle : 0;
+  let best: ShotDef = loft ? SHOTS.loftedDrive : SHOTS.straightDrive, bestScore = -1;
+  for (const s of ATTACK_SHOTS) {
+    if (s.loft !== loft || !!s.sweep !== input.sweep) continue;
+    const ad = angDist(theta, s.range[0], s.range[1]);
+    const angFit = Math.exp(-(ad / 24) * (ad / 24));
+    let footFit = 1;
+    if (input.foot > 0) footFit = s.foot === 'back' ? 0.12 : 1;
+    else if (input.foot < 0) footFit = s.foot === 'front' ? 0.12 : 1;
+    else if (s.foot === 'back') footFit = len > 6.5 ? 1 : len > 5 ? 0.6 : 0.3;
+    else if (s.foot === 'front') footFit = len < 6 ? 1 : len < 7.5 ? 0.6 : 0.3;
+    const score = Math.pow(angFit, 1.5) * footFit * (0.3 + 0.7 * suitability(s, r));
+    if (score > bestScore) { bestScore = score; best = s; }
   }
-  if (dir === 'leg') {
-    if (foot < 0 && !short) return (loft || power) ? SHOTS.slogSweep : SHOTS.sweep;
-    if (short) return bouncer && !loft ? SHOTS.hook : loft ? SHOTS.loftedPull : SHOTS.pull;
-    if (loft && power) return SHOTS.slog;
-    if (loft) return SHOTS.loftedOn;
-    if (r.lineOff < -0.25 && !power) return SHOTS.legGlance;
-    return SHOTS.flick;
-  }
-  if (dir === 'straight') {
-    if (foot < 0 && full) return SHOTS.paddleScoop;
-    if (short) return loft ? SHOTS.loftedPull : SHOTS.backFootPunch;
-    if (loft) return SHOTS.loftedDrive;
-    return SHOTS.straightDrive;
-  }
-  // power with no direction: attacking shot straight-ish chosen by length
-  if (short) return loft ? SHOTS.loftedPull : SHOTS.pull;
-  if (loft) return SHOTS.slog;
-  return SHOTS.loftedDrive;
+  return best;
 }
 
 const mem = (v: number, lo: number, hi: number, soft: number) => {
@@ -115,11 +121,10 @@ export function suitability(shot: ShotDef, r: BallRead): number {
   return clamp(s, 0, 1);
 }
 
-export function contactZ(shot: ShotDef, input: ShotInput, spin: boolean): { z: number; advance: boolean } {
-  if (input.foot > 0 && spin && shot.family !== 'defendBack') return { z: 7.3, advance: true };
-  if (input.foot > 0) return { z: 8.55, advance: false };
-  if (input.foot < 0) return { z: 9.55, advance: false };
-  return { z: shot.foot === 'back' ? 9.45 : 8.8, advance: false };
+export function contactZ(shot: ShotDef, input: ShotInput, batterZ = 9.35): { z: number; advance: boolean } {
+  const front = input.foot > 0 || (input.foot === 0 && shot.foot !== 'back');
+  const z = front ? batterZ - 0.6 : Math.min(9.6, batterZ + 0.15);
+  return { z, advance: batterZ < 8.6 };
 }
 
 const USER_WINDOW: Record<Difficulty, number> = { easy: 1.55, medium: 1.2, hard: 0.98, pro: 0.82 };
@@ -136,10 +141,11 @@ export function timingWindows(ctx: Pick<ShotContext, 'batter' | 'difficulty' | '
 
 export function resolveShot(input: ShotInput, ctx: ShotContext): ShotResolution {
   // shot choice uses where the ball will be at a neutral contact point
-  const read0 = readBall(ctx.path, ctx.bounceIndex, 9.0, ctx.offSign, ctx.speedKmh, ctx.spin);
+  const adv = Math.max(0, 9.35 - ctx.batterZ);
+  const read0 = readBall(ctx.path, ctx.bounceIndex, ctx.batterZ - 0.35, ctx.offSign, ctx.speedKmh, ctx.spin, ctx.shuffle, adv);
   const shot = chooseShot(input, read0);
-  const { z: zc, advance } = contactZ(shot, input, ctx.spin);
-  const read = readBall(ctx.path, ctx.bounceIndex, zc, ctx.offSign, ctx.speedKmh, ctx.spin);
+  const { z: zc, advance } = contactZ(shot, input, ctx.batterZ);
+  const read = readBall(ctx.path, ctx.bounceIndex, zc, ctx.offSign, ctx.speedKmh, ctx.spin, ctx.shuffle, adv);
   const tArrive = timeAtZ(ctx.path, zc);
   const base: ShotResolution = { shot, input, contact: 'miss', timing: '', err: 0, quality: 0, zContact: zc, tArrive, exitV: null, hitWicket: false, advance, read };
   if (shot.family === 'leave') { base.contact = 'leave'; return base; }
@@ -199,9 +205,11 @@ export function resolveShot(input: ShotInput, ctx: ShotContext): ShotResolution 
   }
 
   base.contact = 'clean';
-  // aim is screen-relative: -1 = screen-left = world -x
-  let theta = shot.theta + input.aim * 18 * os;
-  theta += (err / w.ok) * 24 + gauss() * (1 - q) * 14;
+  // the ball goes where the batter aimed (within what the shot allows), bent by timing
+  const mid = (shot.range[0] + shot.range[1]) / 2;
+  const want = input.hasDir ? input.angle : (shot.range[0] <= 0 && shot.range[1] >= 0 ? 0 : mid);
+  let theta = clamp(want, shot.range[0] - 6, shot.range[1] + 6);
+  theta += (err / w.ok) * 22 + gauss() * (1 - q) * 13;
   let speed = shot.speed * (0.42 + 0.58 * q) * (0.82 + 0.3 * (ctx.batter.bat / 100)) + incoming * 0.1;
   if (input.power) speed *= 1.1;
   if (ctx.isUser) speed *= USER_POWER[ctx.difficulty];
@@ -215,14 +223,8 @@ export function resolveShot(input: ShotInput, ctx: ShotContext): ShotResolution 
     if (input.power) elev += 3;
   }
   if (input.soft && !shot.loft && !defensive) { speed *= 0.42; elev = Math.min(elev, 1); }
-  if (defensive) { speed = shot.speed * randRange(0.7, 1.25); theta = shot.theta + gauss() * 22; }
+  if (defensive) { speed = shot.speed * randRange(0.7, 1.25) * (input.soft ? 0.6 : 1); theta = (input.hasDir ? input.angle * 0.35 : 0) + gauss() * 20; }
   base.exitV = dirOf(theta, elev, speed);
-  // name drives after where they actually went
-  if (shot.family === 'drive' && shot.foot === 'front') {
-    base.shot = Math.abs(theta) < 12 ? SHOTS.straightDrive : theta >= 38 ? SHOTS.coverDrive : theta > 0 ? SHOTS.offDrive : SHOTS.onDrive;
-  } else if (shot.family === 'loft') {
-    base.shot = theta >= 30 ? SHOTS.loftedCover : theta <= -14 ? SHOTS.loftedOn : SHOTS.loftedDrive;
-  }
   return base;
 }
 

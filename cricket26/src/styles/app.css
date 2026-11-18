@@ -194,3 +194,11 @@ input[type=range] { width: 260px; accent-color: var(--gold); }
 .result-hero .win { font-family: var(--cond); font-style: italic; font-weight: 900; font-size: clamp(36px, 5vw, 62px); text-transform: uppercase; color: var(--gold); }
 .pom { display: inline-flex; gap: 14px; align-items: center; background: var(--panel2); padding: 10px 22px; border-radius: 40px; margin-top: 10px; }
 .pom .l { font-size: 11px; letter-spacing: 3px; color: var(--gold); }
+
+.shot-sel { position: absolute; right: 24px; bottom: 96px; display: flex; gap: 10px; align-items: center; background: var(--panel); padding: 8px 12px; border-radius: 8px; border-top: 3px solid var(--gold); }
+.sel-info { display: flex; flex-direction: column; gap: 4px; min-width: 130px; }
+.sel-foot { font-weight: 900; font-size: 13px; letter-spacing: 1px; }
+.sel-mods { font-size: 11px; color: var(--accent); font-weight: 800; letter-spacing: 1px; }
+.sel-crease { position: relative; height: 10px; border-top: 2px solid #fff; margin: 8px 0 4px; }
+.sel-dot { position: absolute; top: 4px; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%; background: var(--gold); transition: top .1s; }
+.sel-shot { font-size: 12px; font-weight: 800; color: #fff; min-height: 14px; }
