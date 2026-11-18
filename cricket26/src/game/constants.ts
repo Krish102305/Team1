@@ -1,0 +1,14 @@
+export const G = 9.81;
+export const BALL_R = 0.036;
+export const STUMPS_Z = 10.06;      // stumps at +/- this z
+export const CREASE_Z = 8.84;       // popping creases at +/- this z
+export const STUMP_H = 0.711;
+export const STUMP_HALF_W = 0.114;
+export const PITCH_HALF_W = 1.52;
+export const BAT_REACH = 0.6;       // bat grounding reach beyond the body when making ground
+export const BATTER_Z = 9.35;       // striker stance position
+export const SWING_LEAD = 0.24;     // seconds from pressing a shot key to bat reaching contact
+export const SIM_STEP = 1 / 120;
+export const PHYS_SUBSTEPS = 4;
+export const RUN_LANE_X = 0.9;
+export const RECEIVER_OFFSET = 0.9; // keeper/bowler stand this far behind stumps when taking throws
