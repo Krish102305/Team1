@@ -454,7 +454,7 @@ export class GameEngine {
         this.replay.start(this);
         continue;
       }
-      if (a === 'camera') { this.camMode = (this.camMode + 1) % 3; continue; }
+      if (a === 'camera') { this.camMode = (this.camMode + 1) % 3; this.listener.onNotify(['BROADCAST CAM', 'CLOSE CAM', 'HIGH CAM'][this.camMode], 'info'); continue; }
       if (this.userBowling) this.bowlingInput(a);
       if (this.userBatting) this.battingInput(a);
     }

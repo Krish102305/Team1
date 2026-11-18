@@ -16,6 +16,8 @@ import { ReplayFrame } from '../../game/Replay';
 import { audio } from '../../game/Audio';
 import { oversText } from '../../game/MatchManager';
 
+const BLOB_GEO = new THREE.CircleGeometry(0.42, 16);
+const BLOB_MAT = new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.28, depthWrite: false });
 const SKIN = ['#7a4a2a', '#8f5d3b', '#a87452', '#c08a66', '#d4a585', '#5e3a22', '#6e4630', '#b98463'];
 
 export function Lighting({ def, time, quality }: { def: StadiumDef; time: TimeOfDay; quality: Quality }) {
@@ -164,6 +166,11 @@ function World({ engine, def, quality }: { engine: GameEngine; def: StadiumDef; 
         secondary: team ? (isKeeper ? team.primary : team.secondary) : '#333333',
         seed: h,
       });
+      if (quality === 'low') {
+        const blobS = new THREE.Mesh(BLOB_GEO, BLOB_MAT);
+        blobS.rotation.x = -Math.PI / 2; blobS.position.y = 0.015;
+        rig.root.add(blobS);
+      }
       R.group.add(rig.mirror);
       return rig;
     });
@@ -256,7 +263,7 @@ function World({ engine, def, quality }: { engine: GameEngine; def: StadiumDef; 
     marker.visible = showMarker;
     if (showMarker) marker.position.set(engine.targetLine * engine.offSign, 0.025, STUMPS_Z - engine.targetLen);
 
-    updateCamera(engine, camera as THREE.PerspectiveCamera, camState.current, dt, settings.camera, settings.cameraSmoothing, frame, tmp);
+    updateCamera(engine, camera as THREE.PerspectiveCamera, camState.current, dt, CAM_ORDER[(CAM_ORDER.indexOf(settings.camera) + engine.camMode) % 3], settings.cameraSmoothing, frame, tmp);
   });
 
   const teamColors = useMemo(() => { const a = TEAM_MAP[engine.config.userTeamId], b = TEAM_MAP[engine.config.aiTeamId]; return [a.primary, b.primary, a.secondary, b.secondary]; }, [engine]);
@@ -275,6 +282,7 @@ function World({ engine, def, quality }: { engine: GameEngine; def: StadiumDef; 
 }
 
 // ---------------------------------------------------------------- camera director
+const CAM_ORDER: CameraPreset[] = ['broadcast', 'close', 'high'];
 const BAT_CAMS: Record<CameraPreset, { pos: [number, number, number]; look: [number, number, number]; fov: number }> = {
   broadcast: { pos: [0, 4.3, 20.5], look: [0, 0.5, -3], fov: 40 },
   close: { pos: [0, 2.9, 15.8], look: [0, 0.9, -2], fov: 46 },
