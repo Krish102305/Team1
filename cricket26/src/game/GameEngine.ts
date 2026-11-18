@@ -1608,7 +1608,6 @@ export class GameEngine {
       if (res.maiden) this.listener.onCommentary(this.commentary.line('maiden', { bw: getPlayer(o.bowlerId).name }));
     }
     if (res.matchComplete) {
-      this.listener.onNotify(this.match.result!.text.toUpperCase(), 'result');
       this.setPhase('matchOver');
       return;
     }

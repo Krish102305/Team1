@@ -108,7 +108,7 @@ export class MatchManager {
     if (inn.target === null) return null;
     const need = inn.target - inn.runs;
     const left = this.ballsLeft;
-    if (left <= 0) return null;
+    if (left <= 0 || need <= 0) return null;
     return (need / left) * 6;
   }
 

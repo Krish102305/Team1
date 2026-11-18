@@ -289,12 +289,12 @@ function InningsBreak({ e }: { e: GameEngine }) {
 
 function MatchOver({ e }: { e: GameEngine }) {
   const setScreen = useGame((s) => s.setScreen);
-  useEffect(() => { const t = setTimeout(() => setScreen('result'), 6000); return () => clearTimeout(t); }, [setScreen]);
+  useEffect(() => { const t = setTimeout(() => setScreen('result'), 9000); return () => clearTimeout(t); }, [setScreen]);
   const r = e.match.result;
   return (
     <div className="intro-card" style={{ bottom: '30%' }}>
       <div className="venue">Match complete</div>
-      <div className="match">{r?.text}</div>
+      <div className="match" style={{ fontSize: 'clamp(28px, 4vw, 52px)' }}>{r?.text}</div>
       <button className="btn gold interactive" onClick={() => setScreen('result')} style={{ pointerEvents: 'auto' }}>View Scorecard ▶</button>
     </div>
   );
