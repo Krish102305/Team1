@@ -18,6 +18,7 @@ export interface Settings {
   showHints: boolean;
   pitchMarker: 'auto' | 'on' | 'off';
   bowlerReveal: boolean;
+  loftResetEachBall: boolean;
   aimPath: boolean;
   keys: Record<InputAction, string[]>;
 }
@@ -42,7 +43,7 @@ export const ACTION_GROUPS: { title: string; actions: InputAction[] }[] = [
 export const ACTION_LABELS: Record<InputAction, string> = {
   batStraight: 'Hit straight (combine with left/right for diagonals)', batLeft: 'Hit to screen-left', batRight: 'Hit to screen-right',
   batFineLeft: 'Hit fine, behind square (screen-left)', batFineRight: 'Hit fine, behind square (screen-right)',
-  batDefend: 'Defend (also: turn back while running)', batLeave: 'Leave the ball', batLoft: 'Lofted shot (in held direction)',
+  batDefend: 'Defend (also: turn back while running)', batLeave: 'Leave the ball', batLoft: 'Loft ON / OFF toggle (attacking shots go in the air)',
   batPower: 'Power shot (in held direction)', batSoft: 'Soft hands — push for a single (hold)', batSweep: 'Sweep / scoop / reverse family (hold)',
   footFront: 'Front foot (hold)', footBack: 'Back foot (hold)', moveLeft: 'Shuffle left at the crease', moveRight: 'Shuffle right at the crease',
   charge: 'Charge down the pitch (hold)', retreat: 'Back into the crease', run: 'Run / call another run',
@@ -53,7 +54,7 @@ export const ACTION_LABELS: Record<InputAction, string> = {
 
 const SETTINGS_KEY = 'cricket26.settings.v2';
 function loadSettings(): Settings {
-  const def: Settings = { quality: 'medium', volume: 0.7, commentaryVolume: 0.6, speech: false, camera: 'broadcast', cameraSmoothing: 0.6, difficulty: 'medium', showHints: true, pitchMarker: 'auto', bowlerReveal: false, aimPath: true, keys: DEFAULT_KEYS };
+  const def: Settings = { quality: 'medium', volume: 0.7, commentaryVolume: 0.6, speech: false, camera: 'broadcast', cameraSmoothing: 0.6, difficulty: 'medium', showHints: true, pitchMarker: 'auto', bowlerReveal: false, loftResetEachBall: false, aimPath: true, keys: DEFAULT_KEYS };
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return def;

@@ -30,6 +30,7 @@ export function SettingsPanel({ compact = false }: { compact?: boolean }) {
         <div className="set-row"><label>Camera smoothing</label><input type="range" min={0} max={1} step={0.05} value={settings.cameraSmoothing} onChange={(e) => update({ cameraSmoothing: +e.target.value })} /></div>
         <div className="set-row"><label>Pitch marker (shows where the ball will land)</label><div className="row"><Opt k="pitchMarker" v="auto" label="Easy/Medium only" /><Opt k="pitchMarker" v="on" label="Always" /><Opt k="pitchMarker" v="off" label="Off" /></div></div>
         <div className="set-row"><label>See the bowler's plan before the ball (target + delivery type during run-up)</label><div className="row"><Opt k="bowlerReveal" v={true} label="On" /><Opt k="bowlerReveal" v={false} label="Off" /></div></div>
+        <div className="set-row"><label>Loft toggle (L) after each ball</label><div className="row"><Opt k="loftResetEachBall" v={false} label="Stays on until pressed again" /><Opt k="loftResetEachBall" v={true} label="Turns off after each ball" /></div></div>
         <div className="set-row"><label>Bowling aim: show predicted ball path</label><div className="row"><Opt k="aimPath" v={true} label="On" /><Opt k="aimPath" v={false} label="Off" /></div></div>
         <div className="set-row"><label>On-screen control hints</label><div className="row"><Opt k="showHints" v={true} label="On" /><Opt k="showHints" v={false} label="Off" /></div></div>
       </div>

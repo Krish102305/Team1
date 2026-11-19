@@ -33,8 +33,8 @@ while (e.phase !== 'matchOver' && guard++ < 2_000_000) {
       runPressed = false;
     }
     if (plan && e.phase === 'delivery' && e.t >= plan.at) {
+      if (e.loftOn !== plan.loft) { press('batLoft'); release('batLoft'); } // L toggles loft on/off
       press(plan.key);
-      if (plan.loft) press('batLoft');
       upAt = e.t + 0.12; plan = null;
     }
     if (upAt > 0 && e.t >= upAt) { release('batStraight'); release('batLeft'); release('batRight'); release('batLoft'); upAt = -1; }
@@ -58,6 +58,7 @@ for (const inn of e.match.innings) {
   console.log(`${inn.battingTeamId} ${inn.runs}/${inn.wickets} (${Math.floor(inn.legalBalls / 6)}.${inn.legalBalls % 6}) reconcile=${batSum + ex === inn.runs} W=${JSON.stringify(kinds)} 4s=${Object.values(inn.batters).reduce((a, b) => a + b.fours, 0)} 6s=${Object.values(inn.batters).reduce((a, b) => a + b.sixes, 0)}`);
 }
 console.log('result:', e.match.result?.text, '| timing', timing, '| notes', notes);
+console.log('loft toggle state at end:', e.loftOn);
 
 // ---- simulate option check
 {

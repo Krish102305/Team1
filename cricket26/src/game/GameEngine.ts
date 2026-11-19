@@ -338,6 +338,7 @@ export class GameEngine {
     };
     this.runsDone = 0;
     this.runQueued = false;
+    if (this.loftResetEachBall) this.loftOn = false;
     this.shuffle = 0;
     this.batterZ = BATTER_Z;
     this.aiChargeZ = 0;
@@ -508,7 +509,22 @@ export class GameEngine {
     return d.has ? screenToBatterAngle(d.sx, d.sy, this.offSign) : null;
   }
 
+  /** loft is an on/off toggle (L): while on, every attacking shot is played in the air */
+  loftOn = false;
+  loftResetEachBall = false;
+
   private battingInput(a: InputAction) {
+    if (a === 'batLoft') {
+      this.loftOn = !this.loftOn;
+      // pressed just after a ground shot (before impact): upgrade that shot too
+      const sh = this.d.shot;
+      if (this.loftOn && this.phase === 'delivery' && sh && !this.d.contactDone && sh.input.kind === 'ground' && this.t - this.d.releaseT - sh.input.pressTime < 0.16) {
+        this.playShot({ ...sh.input, kind: 'loft' }, true);
+      }
+      if (this.d.pending && this.loftOn && this.d.pending.input.kind === 'ground') this.d.pending.input.kind = 'loft';
+      this.listener.onState(this);
+      return;
+    }
     if (this.phase === 'live') {
       if (a === 'run') this.requestRun();
       if (a === 'batDefend') this.cancelRun();
@@ -519,24 +535,23 @@ export class GameEngine {
     if (this.d.shot) {
       const sh = this.d.shot;
       const now = this.t - this.d.releaseT;
-      if (!this.d.contactDone && sh.input.kind === 'ground' && now - sh.input.pressTime < 0.16 && (a === 'batLoft' || a === 'batPower')) {
-        const inp = { ...sh.input };
-        if (a === 'batLoft') inp.kind = 'loft'; else inp.power = true;
+      if (!this.d.contactDone && (sh.input.kind === 'ground' || sh.input.kind === 'loft') && now - sh.input.pressTime < 0.16 && a === 'batPower') {
+        const inp = { ...sh.input, power: true };
         this.playShot(inp, true);
       }
       return;
     }
     const dirKeys: InputAction[] = ['batStraight', 'batLeft', 'batRight', 'batFineLeft', 'batFineRight'];
     const isDir = dirKeys.includes(a);
-    const kindOf: Partial<Record<InputAction, ShotInput['kind']>> = { batLoft: 'loft', batDefend: 'defend', batLeave: 'leave', batPower: 'ground' };
-    const kind = isDir ? 'ground' : kindOf[a];
+    const kindOf: Partial<Record<InputAction, ShotInput['kind']>> = { batDefend: 'defend', batLeave: 'leave', batPower: 'ground' };
+    let kind = isDir ? 'ground' : kindOf[a];
+    if (kind === 'ground' && this.loftOn) kind = 'loft';
     if (!kind) return;
     const now = this.t - this.d.releaseT;
     if (this.d.pending) {
       // merge keys pressed within the grace window (e.g. D then L = lofted off-side shot)
       const p = this.d.pending.input;
       if (a === 'batPower') p.power = true;
-      else if (kind === 'loft' && p.kind === 'ground') p.kind = 'loft';
       else if (kind === 'defend' || kind === 'leave') p.kind = kind;
       return;
     }

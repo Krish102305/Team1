@@ -173,15 +173,30 @@ function World({ engine, def, quality }: { engine: GameEngine; def: StadiumDef; 
     m.rotation.x = -Math.PI / 2; m.position.y = 0.02;
     return m;
   }, []);
+  // floating markers over the two batters (visible through everything while the camera follows the ball)
+  const batterMarkers = useMemo(() => {
+    const mk = (col: string) => {
+      const cv = document.createElement('canvas'); cv.width = 64; cv.height = 96;
+      const c = cv.getContext('2d')!;
+      c.shadowColor = col; c.shadowBlur = 12;
+      c.fillStyle = col; c.beginPath(); c.moveTo(8, 20); c.lineTo(56, 20); c.lineTo(32, 70); c.closePath(); c.fill();
+      c.shadowBlur = 0; c.strokeStyle = 'rgba(0,0,0,0.6)'; c.lineWidth = 3; c.stroke();
+      const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: false, transparent: true, toneMapped: false }));
+      sp.renderOrder = 999; sp.center.set(0.5, 0);
+      return sp;
+    };
+    return [mk('#ffffff'), mk('#ffffff')];
+  }, []);
   const camState = useRef({ pos: new THREE.Vector3(0, 30, 80), look: new THREE.Vector3(0, 0, 0), shot: '' });
   const excite = useRef(0);
   const settings = useGame((s) => s.settings);
 
   useEffect(() => {
-    scene.add(rigsRef.current.group, ball, blob, trail.line, marker, bounceMark, aimPath, planRing);
+    scene.add(rigsRef.current.group, ball, blob, trail.line, marker, bounceMark, aimPath, planRing, ...batterMarkers);
     const g = rigsRef.current.group;
-    return () => { scene.remove(g, ball, blob, trail.line, marker, bounceMark, aimPath, planRing); };
-  }, [scene, ball, blob, trail, marker, bounceMark, aimPath, planRing]);
+    return () => { scene.remove(g, ball, blob, trail.line, marker, bounceMark, aimPath, planRing, ...batterMarkers); };
+  }, [scene, ball, blob, trail, marker, bounceMark, aimPath, planRing, batterMarkers]);
 
   // excite crowd on big events
   useEffect(() => {
@@ -332,6 +347,22 @@ function World({ engine, def, quality }: { engine: GameEngine; def: StadiumDef; 
         }
       }
     }
+    // batter markers while the ball is in play and the camera is away from the pitch
+    const showMk = !frame && (engine.phase === 'live' || engine.phase === 'dead') && !engine.d.wicket;
+    engine.runners.forEach((r, i) => {
+      const sp = batterMarkers[i];
+      const a = engine.actors[r.a];
+      const dist = camera.position.distanceTo(tmp.v.set(a.x, 1, a.z));
+      sp.visible = showMk && dist > 14;
+      if (!sp.visible) return;
+      const safe = engine.inGround(r, 1) || engine.inGround(r, -1);
+      const mat = sp.material as THREE.SpriteMaterial;
+      mat.color.set(safe ? '#2ee59d' : engine.runHint === 'danger' ? '#ff4d5e' : '#ffc72c');
+      const s = dist * 0.045;
+      sp.scale.set(s * 0.66, s, 1);
+      sp.position.set(a.x, 2.2 + Math.sin(performance.now() * 0.006) * 0.12, a.z);
+    });
+
     // batting aid: reveal where the AI bowler is aiming during the run-up
     const pd = engine.plannedDelivery;
     planRing.visible = !frame && settings.bowlerReveal && engine.userRole === 'bat' && engine.phase === 'runUp' && !!pd;

@@ -130,6 +130,79 @@ function RunHint({ e }: { e: GameEngine }) {
   return <div className={`runhint ${e.runHint}`}>{txt} · {running ? `R = another run · S = turn back` : 'R = run'} · runs {e.runsDone}</div>;
 }
 
+/** live running tracker (22 yards with both batters) + field radar, drawn on canvases every frame */
+function RunTracker({ e }: { e: GameEngine }) {
+  const ph = useGame((s) => s.phase);
+  useHud();
+  const strip = useRef<HTMLCanvasElement>(null);
+  const radar = useRef<HTMLCanvasElement>(null);
+  const visible = (ph === 'live' || ph === 'dead') && !e.replay.active;
+  useEffect(() => {
+    if (!visible) return;
+    let raf = 0;
+    const draw = () => {
+      const cs = strip.current?.getContext('2d');
+      if (cs && strip.current) {
+        const W = strip.current.width, H = strip.current.height;
+        cs.clearRect(0, 0, W, H);
+        // pitch strip: x = along the pitch (bowler's end left, striker's end right)
+        const pad = 46, len = W - pad * 2;
+        const zx = (z: number) => pad + ((z + 10.06) / 20.12) * len;
+        cs.fillStyle = 'rgba(201,178,124,0.95)'; cs.fillRect(pad - 14, 22, len + 28, 26);
+        cs.fillStyle = '#fff';
+        for (const zc of [-8.84, 8.84]) cs.fillRect(zx(zc) - 1.5, 18, 3, 34);
+        for (const zs of [-10.06, 10.06]) { cs.fillStyle = '#c8102e'; cs.fillRect(zx(zs) - 2, 26, 4, 18); }
+        const bowlerEnd = TEAM_MAP[e.inn.bowlingTeamId].short;
+        cs.font = 'bold 10px Arial'; cs.fillStyle = '#cfd8ea'; cs.textAlign = 'left'; cs.fillText("BOWLER'S END", 4, 12); cs.textAlign = 'right'; cs.fillText("KEEPER'S END", W - 4, 12);
+        void bowlerEnd;
+        e.runners.forEach((r, i) => {
+          const inPlus = e.inGround(r, 1), inMinus = e.inGround(r, -1);
+          const safe = inPlus || inMinus;
+          const danger = !safe && e.runHint === 'danger';
+          const x = zx(Math.max(-10, Math.min(10, r.z)));
+          const y = i === 0 ? 30 : 41;
+          cs.fillStyle = safe ? '#2ee59d' : danger ? '#ff4d5e' : '#ffc72c';
+          cs.beginPath(); cs.arc(x, y, 7, 0, Math.PI * 2); cs.fill();
+          cs.strokeStyle = '#0a1430'; cs.lineWidth = 2; cs.stroke();
+          if (r.running) { cs.fillStyle = '#fff'; cs.beginPath(); const d = r.target > 0 ? 1 : -1; cs.moveTo(x + d * 14, y); cs.lineTo(x + d * 8, y - 5); cs.lineTo(x + d * 8, y + 5); cs.fill(); }
+          const p = getPlayer(r.playerId);
+          cs.fillStyle = '#fff'; cs.font = 'bold 10px Arial'; cs.textAlign = 'center';
+          cs.fillText(p.name.split(' ').slice(-1)[0].toUpperCase(), x, i === 0 ? 62 : 74);
+        });
+        cs.textAlign = 'center'; cs.font = 'bold 13px Arial'; cs.fillStyle = '#ffc72c';
+        cs.fillText(`RUNS ${e.runsDone}${e.runQueued ? ' (+1 called)' : ''}`, W / 2, 12);
+      }
+      const cr = radar.current?.getContext('2d');
+      if (cr && radar.current) {
+        const W = radar.current.width, H = radar.current.height, cx = W / 2, cy = H / 2;
+        const sc = (W / 2 - 6) / 80;
+        cr.clearRect(0, 0, W, H);
+        // boundary shape, rotated so the striker's end is at the bottom
+        cr.fillStyle = 'rgba(30,110,45,0.85)'; cr.strokeStyle = 'rgba(255,255,255,0.8)'; cr.lineWidth = 1.5;
+        cr.beginPath();
+        for (let k = 0; k <= 64; k++) { const a = (k / 64) * Math.PI * 2; const rr = e.boundaryAt(a) * sc; const x = cx + Math.sin(a) * rr, y = cy + Math.cos(a) * rr; if (k) cr.lineTo(x, y); else cr.moveTo(x, y); }
+        cr.fill(); cr.stroke();
+        cr.fillStyle = '#c9b27c'; cr.fillRect(cx - 2, cy - 10.06 * sc, 4, 20.12 * sc);
+        const P = (x: number, z: number) => [cx + x * sc, cy + z * sc] as const;
+        e.fielders.forEach((f, i) => { const a = e.actors[f.a]; const [x, y] = P(a.x, a.z); cr.fillStyle = i === e.chaser ? '#ff7a00' : TEAM_MAP[e.inn.bowlingTeamId].primary; cr.beginPath(); cr.arc(x, y, i === e.chaser ? 4.5 : 3.2, 0, Math.PI * 2); cr.fill(); cr.strokeStyle = '#000'; cr.lineWidth = 1; cr.stroke(); });
+        e.runners.forEach((r) => { const [x, y] = P(r.x, r.z); cr.fillStyle = '#ffffff'; cr.beginPath(); cr.arc(x, y, 3.5, 0, Math.PI * 2); cr.fill(); });
+        const [bx, by] = P(e.ball.p.x, e.ball.p.z);
+        cr.fillStyle = '#ffe600'; cr.beginPath(); cr.arc(bx, by, 3, 0, Math.PI * 2); cr.fill(); cr.strokeStyle = '#000'; cr.stroke();
+      }
+      raf = requestAnimationFrame(draw);
+    };
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, [e, visible]);
+  if (!visible) return null;
+  return (
+    <>
+      <div className="run-strip"><canvas ref={strip} width={420} height={80} /></div>
+      <div className="radar"><canvas ref={radar} width={170} height={170} /></div>
+    </>
+  );
+}
+
 function BowlPanel({ e }: { e: GameEngine }) {
   useHud();
   const ph = useGame((s) => s.phase);
@@ -188,7 +261,7 @@ function Hints({ e }: { e: GameEngine }) {
     <div className="hints">
       <b>BATTING</b> — hit as the ball arrives<br />
       Direction: {K('batLeft')}{K('batStraight')}{K('batRight')} + fine {K('batFineLeft')}{K('batFineRight')} (combine for diagonals)<br />
-      Press a direction = ground shot · {K('batLoft')} loft · {K('batPower')} power<br />
+      Press a direction to hit · {K('batLoft')} toggles LOFT on/off · {K('batPower')} power<br />
       {K('batDefend')} defend · {K('batLeave')} leave · hold {K('batSoft')} soft · hold {K('batSweep')} sweep<br />
       Feet: hold {K('footFront')} front · {K('footBack')} back · {K('moveLeft')}{K('moveRight')} shuffle · {K('charge')} charge<br />
       {K('run')} run · {K('batDefend')} turn back · {K('replay')} replay · {K('pause')} pause
@@ -223,6 +296,7 @@ function ShotSelector({ e }: { e: GameEngine }) {
   const arrow = useRef<SVGGElement>(null);
   const foot = useRef<HTMLSpanElement>(null);
   const mods = useRef<HTMLSpanElement>(null);
+  const loft = useRef<HTMLSpanElement>(null);
   const crease = useRef<HTMLDivElement>(null);
   const shot = useRef<HTMLDivElement>(null);
   const visible = e.userRole === 'bat' && (ph === 'ready' || ph === 'runUp' || ph === 'delivery' || ph === 'live');
@@ -244,6 +318,7 @@ function ShotSelector({ e }: { e: GameEngine }) {
       if (mods.current) {
         const m = [e.held('batSoft') ? 'SOFT' : '', e.held('batSweep') ? 'SWEEP' : '', e.held('batPower') ? 'POWER' : ''].filter(Boolean);
         mods.current.textContent = m.length ? m.join(' · ') : '—';
+        if (loft.current) { loft.current.textContent = e.loftOn ? 'LOFT ON' : 'LOFT OFF'; loft.current.className = e.loftOn ? 'sel-loft on' : 'sel-loft'; }
       }
       if (crease.current) {
         const xScreen = e.shuffle * e.offSign; // world/screen
@@ -273,6 +348,7 @@ function ShotSelector({ e }: { e: GameEngine }) {
         <circle cx="60" cy="62" r="4" fill="#fff" />
       </svg>
       <div className="sel-info">
+        <span ref={loft} className="sel-loft">LOFT OFF</span>
         <span ref={foot} className="sel-foot">AUTO FOOT</span>
         <span ref={mods} className="sel-mods">—</span>
         <div className="sel-crease"><div ref={crease} className="sel-dot" /></div>
@@ -492,8 +568,9 @@ export function MatchScreen() {
       setTick((x) => x + 1);
       return true;
     };
+    engine.loftResetEachBall = st.settings.loftResetEachBall;
     controls.attach(engine);
-    const unsub = useGame.subscribe((s, p) => { if (s.settings.keys !== p.settings.keys) controls.setKeys(s.settings.keys); });
+    const unsub = useGame.subscribe((s, p) => { if (s.settings.keys !== p.settings.keys) controls.setKeys(s.settings.keys); engine.loftResetEachBall = s.settings.loftResetEachBall; });
     audio.ensure();
     return () => { controls.detach(); unsub(); engine.listener = { onState() {}, onNotify() {}, onCommentary() {}, onPhase() {}, onTiming() {}, onSound() {}, onReplayAvailable() {} }; audio.setAmbience(0); };
   }, [engine]);
@@ -511,6 +588,7 @@ export function MatchScreen() {
         <Timing />
         <Speed e={engine} />
         <RunHint e={engine} />
+        <RunTracker e={engine} />
         <BowlPanel e={engine} />
         <Hints e={engine} />
         <ShotSelector e={engine} />
