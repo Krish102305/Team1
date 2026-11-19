@@ -36,7 +36,7 @@ Directions are **screen-relative**: A always hits to the left of the screen and 
 | **W / A / D** | Hit straight / screen-left / screen-right. Combine for diagonals (W+D = cover/extra-cover region for a right-hander) |
 | **Q / E** | Hit fine, behind square (glance, late cut, paddle, ramp) |
 | *pressing a direction* | Plays a **ground shot** in that direction, timed from the key press |
-| **L** | **Lofted shot** in the direction you're holding (straight if none). Tap L just after a direction key also works |
+| **L** | **Loft ON/OFF toggle** — while on (orange LOFT ON badge), every attacking shot goes in the air. Press again to turn it off (or set it to reset after each ball in Settings) |
 | **Space** | Power shot in the held direction |
 | **S** | Defend (also: turn back while running) |
 | **Z** | Leave the ball |
@@ -62,6 +62,10 @@ The game chooses the actual shot (cover drive, square cut, pull, hook, flick, gl
 | hold **Space** | Run in. **Release in the green zone** of the meter for an accurate delivery. Releasing too late (red) is an overstep, which is a no-ball |
 
 You choose your bowler at the start of each over, either by clicking or by pressing the number keys.
+
+### While the ball is in play
+
+A running strip at the top shows both batters between the creases (green = safe in their ground, amber = running, red = in danger), with the runs completed; a field radar shows the fielders, the ball and the batters; and floating markers sit above the batters when the camera is following the ball.
 
 ### Batting aids (Settings)
 

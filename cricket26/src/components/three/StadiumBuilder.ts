@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { StadiumDef, boundaryRadius } from '../../data/stadiums';
 import type { TimeOfDay } from '../../game/types';
 import { CREASE_Z, STUMPS_Z, STUMP_H } from '../../game/constants';
@@ -382,64 +382,97 @@ export function buildStadium(def: StadiumDef, time: TimeOfDay, quality: Quality,
 
   // ------------------------------------------------ crowd (instanced, shader-animated)
   const crowdCount = Math.floor((quality === 'low' ? 6000 : quality === 'medium' ? 15000 : 26000) * def.crowdDensity);
-  // low-poly indexed figure (~84 vertices): torso, head, two arms
-  const body = new THREE.BoxGeometry(0.4, 0.56, 0.26); body.translate(0, 0.42, 0);
-  const headG = mergeVertices(new THREE.IcosahedronGeometry(0.115, 0)); headG.deleteAttribute('uv'); headG.translate(0, 0.84, 0);
-  const armL = new THREE.BoxGeometry(0.09, 0.42, 0.09); armL.translate(0.25, 0.45, 0.02);
-  const armR = new THREE.BoxGeometry(0.09, 0.42, 0.09); armR.translate(-0.25, 0.45, 0.02);
-  const parts = [body, headG, armL, armR];
-  for (const g of [body, armL, armR]) g.deleteAttribute('uv');
-  const flag = (g: THREE.BufferGeometry, name: string, v: number) => { const n = g.attributes.position.count; g.setAttribute(name, new THREE.Float32BufferAttribute(new Float32Array(n).fill(v), 1)); };
-  flag(parts[0], 'aArm', 0); flag(parts[1], 'aArm', 0); flag(parts[2], 'aArm', 1); flag(parts[3], 'aArm', -1);
-  flag(parts[0], 'aSkin', 0); flag(parts[1], 'aSkin', 1); flag(parts[2], 'aSkin', 0.6); flag(parts[3], 'aSkin', 0.6);
-  const personGeo = mergeGeometries(parts)!;
-  parts.forEach((g) => g.dispose());
+  // painted spectator cards: an atlas of 8 fans x 2 poses (arms down / arms up), shirts tinted per fan
+  const atlas = track(canvasTex(512, 256, (c) => {
+    const skins = ['#f1c7a5', '#d9a07a', '#b97d57', '#8d5a3b', '#6b4229', '#e3b38f', '#a8714c', '#c98e66'];
+    const hairs = ['#1a1410', '#3b2414', '#0d0d0d', '#6b4a2b', '#c9a35f', '#222222', '#2b1a10', '#8a8a8a'];
+    for (let v = 0; v < 8; v++) for (let up = 0; up < 2; up++) {
+      const ox = v * 64, oy = up ? 128 : 0;
+      const cx = ox + 32;
+      const shirtKey = (shade: number) => `rgb(0,255,${shade})`;
+      // lap / legs (seated, mostly hidden by the row in front)
+      c.fillStyle = v % 3 === 0 ? '#2b3550' : v % 3 === 1 ? '#3a3a3a' : '#4a3b2a';
+      c.fillRect(cx - 17, oy + 104, 34, 24);
+      // torso (shirt keyed for tinting, with shading in the blue channel)
+      const g = c.createLinearGradient(cx - 20, 0, cx + 20, 0);
+      g.addColorStop(0, shirtKey(120)); g.addColorStop(0.5, shirtKey(255)); g.addColorStop(1, shirtKey(110));
+      c.fillStyle = g;
+      c.beginPath(); c.moveTo(cx - 19, oy + 108); c.lineTo(cx - 21, oy + 62); c.quadraticCurveTo(cx, oy + 50, cx + 21, oy + 62); c.lineTo(cx + 19, oy + 108); c.closePath(); c.fill();
+      // arms
+      c.strokeStyle = shirtKey(170); c.lineWidth = 9; c.lineCap = 'round';
+      if (up) {
+        c.beginPath(); c.moveTo(cx - 18, oy + 66); c.lineTo(cx - 26, oy + 34); c.lineTo(cx - 22, oy + 12); c.stroke();
+        c.beginPath(); c.moveTo(cx + 18, oy + 66); c.lineTo(cx + 26, oy + 34); c.lineTo(cx + 22, oy + 12); c.stroke();
+        c.fillStyle = skins[v]; c.beginPath(); c.arc(cx - 22, oy + 10, 5, 0, Math.PI * 2); c.arc(cx + 22, oy + 10, 5, 0, Math.PI * 2); c.fill();
+      } else {
+        c.beginPath(); c.moveTo(cx - 18, oy + 66); c.lineTo(cx - 22, oy + 92); c.lineTo(cx - 10, oy + 104); c.stroke();
+        c.beginPath(); c.moveTo(cx + 18, oy + 66); c.lineTo(cx + 22, oy + 92); c.lineTo(cx + 10, oy + 104); c.stroke();
+      }
+      // neck + head
+      c.fillStyle = skins[v]; c.fillRect(cx - 5, oy + 48, 10, 10);
+      c.beginPath(); c.ellipse(cx, oy + 38, 11, 13, 0, 0, Math.PI * 2); c.fill();
+      // hair or cap
+      c.fillStyle = v === 2 || v === 5 ? shirtKey(200) : hairs[v];
+      c.beginPath(); c.ellipse(cx, oy + 30, 12, 8, 0, Math.PI, Math.PI * 2); c.fill();
+      if (v === 2 || v === 5) c.fillRect(cx - 4, oy + 28, 16, 3);
+      // eyes
+      c.fillStyle = 'rgba(20,10,5,0.8)'; c.fillRect(cx - 5, oy + 37, 2, 2); c.fillRect(cx + 3, oy + 37, 2, 2);
+    }
+  }));
+  atlas.magFilter = THREE.LinearFilter;
+  const personGeo = new THREE.PlaneGeometry(0.62, 1.24); personGeo.translate(0, 0.5, 0);
   const phase = new Float32Array(crowdCount);
-  const crowdMat = new THREE.MeshLambertMaterial({ color: '#ffffff' }) as unknown as StadiumHandles['crowdMat'];
+  const variant = new Float32Array(crowdCount);
+  const shirtCol = new Float32Array(crowdCount * 3);
+  const crowdMat = new THREE.MeshLambertMaterial({ map: atlas, alphaTest: 0.5, side: THREE.DoubleSide }) as unknown as StadiumHandles['crowdMat'];
   crowdMat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = { value: 0 };
     shader.uniforms.uExcite = { value: 0 };
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aPhase;\nattribute float aArm;\nattribute float aSkin;\nvarying float vSkin;\nuniform float uTime;\nuniform float uExcite;')
+      .replace('#include <common>', '#include <common>\nattribute float aPhase;\nattribute float aVar;\nattribute vec3 aShirt;\nvarying vec3 vShirt;\nuniform float uTime;\nuniform float uExcite;')
+      .replace('#include <uv_vertex>', `#include <uv_vertex>
+        float wave = step(0.0, sin(uTime * (2.5 + aPhase * 2.0) + aPhase * 60.0));
+        float upProb = clamp(uExcite * 1.4, 0.0, 1.0);
+        float frame = step(aPhase, upProb) * (uExcite > 0.5 ? 1.0 : wave) + step(0.93, aPhase) * wave;
+        frame = min(frame, 1.0);
+        vMapUv = vec2((uv.x + aVar) / 8.0, uv.y * 0.5 + (1.0 - frame) * 0.5);
+        vShirt = aShirt;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         float bob = max(0.0, sin(uTime * (5.0 + aPhase * 3.0) + aPhase * 40.0));
-        vSkin = aSkin;
-        if (aArm != 0.0) {
-          // raise arms around the shoulder when the crowd gets excited (some fans always clap)
-          float lift = clamp(uExcite * 1.6 + step(0.82, aPhase) * 0.6, 0.0, 1.0) * (2.4 + 0.4 * bob);
-          float ang = aArm * lift;
-          vec2 p = transformed.xy - vec2(aArm * 0.25, 0.64);
-          float cs = cos(ang), sn = sin(ang);
-          transformed.xy = vec2(p.x * cs - p.y * sn, p.x * sn + p.y * cs) + vec2(aArm * 0.25, 0.64);
-        }
-        transformed.y += bob * (0.03 + uExcite * 0.4);`);
+        transformed.y += bob * uExcite * 0.35;`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vSkin;')
-      .replace('#include <color_fragment>', '#include <color_fragment>\n diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.45, 0.33), vSkin * 0.85);');
+      .replace('#include <common>', '#include <common>\nvarying vec3 vShirt;')
+      .replace('#include <map_fragment>', `
+        vec4 tx = texture2D(map, vMapUv);
+        float isShirt = step(0.8, tx.g) * step(tx.r, 0.2);
+        vec3 base = mix(tx.rgb, vShirt * (0.55 + 0.45 * tx.b), isShirt);
+        diffuseColor.rgb *= base; diffuseColor.a *= tx.a;`);
     crowdMat.userData.shader = shader as unknown as { uniforms: Record<string, { value: number }> };
   };
   const crowd = new THREE.InstancedMesh(personGeo, crowdMat, crowdCount);
-  const shirt = [def.seatColors[0], '#ffffff', '#ffcc00', '#1f5fbf', '#d32f2f', '#2e7d32', '#ff9933', '#212121', '#90caf9', '#f48fb1'];
+  const shirt = [def.seatColors[0], '#ffffff', '#ffcc00', '#1f5fbf', '#d32f2f', '#2e7d32', '#ff9933', '#212121', '#90caf9', '#f48fb1', ...teamColors, ...teamColors];
   const col = new THREE.Color();
   const occupancy = Math.min(1, crowdCount / Math.max(1, crowdSpots.length));
   let ci = 0;
   for (let i = 0; i < crowdSpots.length && ci < crowdCount; i++) {
     if (rnd() > occupancy) continue;
     const s = crowdSpots[i];
-    const jitter = (rnd() - 0.5) * 0.004;
-    const a = s.a + jitter;
+    const a = s.a + (rnd() - 0.5) * 0.004;
     const r = R(a) + s.z;
     pos.set(Math.sin(a) * r, s.y, Math.cos(a) * r);
-    const face = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), a + Math.PI);
-    const sz = 0.95 + rnd() * 0.2;
+    const face = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), a + Math.PI + (rnd() - 0.5) * 0.3);
+    const sz = 0.92 + rnd() * 0.18;
     m4.compose(pos, face, new THREE.Vector3(sz, sz, sz));
     crowd.setMatrixAt(ci, m4);
-    col.set(shirt[Math.floor(rnd() * shirt.length)]).multiplyScalar(0.75 + rnd() * 0.35);
-    crowd.setColorAt(ci, col);
+    col.set(shirt[Math.floor(rnd() * shirt.length)]).multiplyScalar(0.8 + rnd() * 0.3);
+    shirtCol[ci * 3] = col.r; shirtCol[ci * 3 + 1] = col.g; shirtCol[ci * 3 + 2] = col.b;
+    variant[ci] = Math.floor(rnd() * 8);
     phase[ci] = rnd();
     ci++;
   }
   crowd.count = ci;
+  personGeo.setAttribute('aVar', new THREE.InstancedBufferAttribute(variant, 1));
+  personGeo.setAttribute('aShirt', new THREE.InstancedBufferAttribute(shirtCol, 3));
 
   // waving flags in the two teams' colours
   const flagMats: THREE.Material[] = [];
